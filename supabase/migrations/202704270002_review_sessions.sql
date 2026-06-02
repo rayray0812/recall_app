@@ -18,6 +18,7 @@ create table if not exists public.review_sessions (
 -- RLS
 alter table public.review_sessions enable row level security;
 
+drop policy if exists "Users can manage own sessions" on public.review_sessions;
 create policy "Users can manage own sessions"
   on public.review_sessions for all
   using (auth.uid() = user_id);
@@ -30,10 +31,21 @@ create index if not exists idx_review_sessions_modality
   on public.review_sessions (user_id, modality);
 
 -- FK from review_logs (activate the deferred constraint from previous migration)
-alter table public.review_logs
-  add constraint if not exists fk_review_logs_session
-  foreign key (session_id) references public.review_sessions(id)
-  on delete set null;
+do $$
+begin
+  if not exists (
+    select 1
+    from pg_constraint
+    where conname = 'fk_review_logs_session'
+      and conrelid = 'public.review_logs'::regclass
+  ) then
+    alter table public.review_logs
+      add constraint fk_review_logs_session
+      foreign key (session_id) references public.review_sessions(id)
+      on delete set null;
+  end if;
+end;
+$$;
 
 comment on table public.review_sessions is
   'Groups review events by learning session. Enables session-level analytics without aggregating raw logs.';

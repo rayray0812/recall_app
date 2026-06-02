@@ -159,7 +159,7 @@
 - [x] 新增 10 個測試（OutcomeAdapter × 4、ReviewSession × 3、ReviewLog Phase A × 3）
 
 ### 待辦 / 下一步
-- [ ] 在 Supabase 執行 migrations（`202604260001` + `202704270001` + `202704270002`）
+- [x] 在 Supabase 執行 migrations（已同步至 `202704270002`，2026-06-02）
 - [ ] 在 `supabase_constants.dart` 填入真實 Supabase URL 和 anon key
 - [x] 清理 `community_screen.dart` 的 15 個 unused element warning
 - [ ] 實機測試驗證（Android/iOS/Web）
