@@ -13,8 +13,8 @@
 ## 目前進度
 
 所有基礎步驟 + 功能擴充 + FSRS + 驗證強化 + 管理後台 + UI 優化 + Daily Challenge + Grasp Phase 0 + A + B + B+ 皆已完成。
-程式碼通過 `flutter test`（369 個測試全部通過）。
-`flutter analyze` 有 15 個 warning，全部來自 `community_screen.dart` 的 unused element，與核心功能無關，待清理。
+程式碼通過 `flutter test`（372 個測試全部通過）。
+`flutter analyze` 無問題（2026-06-02）。
 
 ### 基礎建設（Step 1–10）✅
 - [x] Step 1：專案骨架 + 核心設定
@@ -161,7 +161,7 @@
 ### 待辦 / 下一步
 - [ ] 在 Supabase 執行 migrations（`202604260001` + `202704270001` + `202704270002`）
 - [ ] 在 `supabase_constants.dart` 填入真實 Supabase URL 和 anon key
-- [ ] 清理 `community_screen.dart` 的 15 個 unused element warning
+- [x] 清理 `community_screen.dart` 的 15 個 unused element warning
 - [ ] 實機測試驗證（Android/iOS/Web）
 - [ ] WebView 匯入功能實測
 - [ ] 開始 Grasp Phase C（embedding pipeline + G1 contextual memory MVP）

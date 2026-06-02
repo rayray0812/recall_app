@@ -17,7 +17,8 @@ void main() {
       userId: 'user-1',
       studySetId: 'study-1',
       title: title,
-      cards: cards ??
+      cards:
+          cards ??
           const [
             Flashcard(id: 'c1', term: ' Cell ', definition: ' Basic unit '),
             Flashcard(id: 'c2', term: 'DNA', definition: 'Genetic material'),
@@ -35,7 +36,8 @@ void main() {
       id: 'local-1',
       title: title,
       createdAt: now,
-      cards: cards ??
+      cards:
+          cards ??
           const [
             Flashcard(id: 'l1', term: 'cell', definition: 'basic unit'),
             Flashcard(id: 'l2', term: 'DNA', definition: 'genetic material'),
@@ -72,11 +74,29 @@ void main() {
       ],
     );
 
-    final match = service.findMatchingLocalStudySet(
-      buildPublicSet(),
-      [different, existing],
-    );
+    final match = service.findMatchingLocalStudySet(buildPublicSet(), [
+      different,
+      existing,
+    ]);
 
     expect(match?.id, existing.id);
+  });
+
+  test('PublicStudySet.fromJson parses interaction counts', () {
+    final publicSet = PublicStudySet.fromJson({
+      'id': 'public-1',
+      'user_id': 'user-1',
+      'study_set_id': 'study-1',
+      'title': 'Biology Basics',
+      'download_count': 12,
+      'like_count': 7,
+      'save_count': 5,
+      'created_at': now.toIso8601String(),
+      'updated_at': now.toIso8601String(),
+    });
+
+    expect(publicSet.downloadCount, 12);
+    expect(publicSet.likeCount, 7);
+    expect(publicSet.saveCount, 5);
   });
 }

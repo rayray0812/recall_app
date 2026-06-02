@@ -1,4 +1,4 @@
-﻿import 'dart:io';
+import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:hive/hive.dart';
@@ -57,30 +57,36 @@ void main() {
   test('getReviewLogsForDate includes exact start-of-day boundary', () async {
     final day = DateTime.utc(2026, 2, 6);
 
-    await service.saveReviewLog(ReviewLog(
-      id: 'start',
-      cardId: 'c1',
-      setId: 's1',
-      rating: 3,
-      state: 0,
-      reviewedAt: day,
-    ));
-    await service.saveReviewLog(ReviewLog(
-      id: 'inside',
-      cardId: 'c2',
-      setId: 's1',
-      rating: 4,
-      state: 1,
-      reviewedAt: day.add(const Duration(hours: 12)),
-    ));
-    await service.saveReviewLog(ReviewLog(
-      id: 'outside',
-      cardId: 'c3',
-      setId: 's1',
-      rating: 2,
-      state: 1,
-      reviewedAt: day.subtract(const Duration(seconds: 1)),
-    ));
+    await service.saveReviewLog(
+      ReviewLog(
+        id: 'start',
+        cardId: 'c1',
+        setId: 's1',
+        rating: 3,
+        state: 0,
+        reviewedAt: day,
+      ),
+    );
+    await service.saveReviewLog(
+      ReviewLog(
+        id: 'inside',
+        cardId: 'c2',
+        setId: 's1',
+        rating: 4,
+        state: 1,
+        reviewedAt: day.add(const Duration(hours: 12)),
+      ),
+    );
+    await service.saveReviewLog(
+      ReviewLog(
+        id: 'outside',
+        cardId: 'c3',
+        setId: 's1',
+        rating: 2,
+        state: 1,
+        reviewedAt: day.subtract(const Duration(seconds: 1)),
+      ),
+    );
 
     final logs = service.getReviewLogsForDate(day);
     final ids = logs.map((e) => e.id).toSet();
@@ -90,43 +96,51 @@ void main() {
     expect(ids, isNot(contains('outside')));
   });
 
-  test('getReviewLogsInRange includes from-boundary and excludes to-boundary',
-      () async {
-    final from = DateTime.utc(2026, 2, 1);
-    final to = DateTime.utc(2026, 2, 2);
+  test(
+    'getReviewLogsInRange includes from-boundary and excludes to-boundary',
+    () async {
+      final from = DateTime.utc(2026, 2, 1);
+      final to = DateTime.utc(2026, 2, 2);
 
-    await service.saveReviewLog(ReviewLog(
-      id: 'from',
-      cardId: 'c1',
-      setId: 's1',
-      rating: 3,
-      state: 0,
-      reviewedAt: from,
-    ));
-    await service.saveReviewLog(ReviewLog(
-      id: 'middle',
-      cardId: 'c2',
-      setId: 's1',
-      rating: 1,
-      state: 1,
-      reviewedAt: from.add(const Duration(hours: 8)),
-    ));
-    await service.saveReviewLog(ReviewLog(
-      id: 'to',
-      cardId: 'c3',
-      setId: 's1',
-      rating: 2,
-      state: 1,
-      reviewedAt: to,
-    ));
+      await service.saveReviewLog(
+        ReviewLog(
+          id: 'from',
+          cardId: 'c1',
+          setId: 's1',
+          rating: 3,
+          state: 0,
+          reviewedAt: from,
+        ),
+      );
+      await service.saveReviewLog(
+        ReviewLog(
+          id: 'middle',
+          cardId: 'c2',
+          setId: 's1',
+          rating: 1,
+          state: 1,
+          reviewedAt: from.add(const Duration(hours: 8)),
+        ),
+      );
+      await service.saveReviewLog(
+        ReviewLog(
+          id: 'to',
+          cardId: 'c3',
+          setId: 's1',
+          rating: 2,
+          state: 1,
+          reviewedAt: to,
+        ),
+      );
 
-    final logs = service.getReviewLogsInRange(from, to);
-    final ids = logs.map((e) => e.id).toSet();
+      final logs = service.getReviewLogsInRange(from, to);
+      final ids = logs.map((e) => e.id).toSet();
 
-    expect(ids, contains('from'));
-    expect(ids, contains('middle'));
-    expect(ids, isNot(contains('to')));
-  });
+      expect(ids, contains('from'));
+      expect(ids, contains('middle'));
+      expect(ids, isNot(contains('to')));
+    },
+  );
 
   test('markStudySetDeleted stores unique tombstone ids', () async {
     await service.markStudySetDeleted('set_1');
@@ -146,71 +160,98 @@ void main() {
     expect(ids, ['folder_1', 'folder_2']);
   });
 
-  test('clearFolderReference removes folderId and marks sets unsynced', () async {
-    final linked = StudySet(
-      id: 'set_1',
-      title: 'Linked',
-      createdAt: DateTime.utc(2026, 3, 7),
-      cards: const [
-        Flashcard(id: 'c1', term: 'a', definition: 'b'),
-      ],
-      folderId: 'folder_1',
-      isSynced: true,
-    );
-    final untouched = StudySet(
-      id: 'set_2',
-      title: 'Other',
-      createdAt: DateTime.utc(2026, 3, 7),
-      cards: const [
-        Flashcard(id: 'c2', term: 'c', definition: 'd'),
-      ],
-      folderId: 'folder_2',
-      isSynced: true,
-    );
+  test('community saved set ids are unique and removable', () async {
+    await service.addCommunitySavedSetId('public_1');
+    await service.addCommunitySavedSetId('public_1');
+    await service.addCommunitySavedSetId('public_2');
 
-    await service.saveStudySet(linked);
-    await service.saveStudySet(untouched);
+    expect(service.getCommunitySavedSetIds(), ['public_1', 'public_2']);
 
-    await service.clearFolderReference('folder_1');
+    await service.removeCommunitySavedSetId('public_1');
 
-    final updatedLinked = service.getStudySet('set_1');
-    final updatedUntouched = service.getStudySet('set_2');
-
-    expect(updatedLinked, isNotNull);
-    expect(updatedLinked!.folderId, isNull);
-    expect(updatedLinked.isSynced, isFalse);
-    expect(updatedLinked.updatedAt, isNotNull);
-
-    expect(updatedUntouched, isNotNull);
-    expect(updatedUntouched!.folderId, 'folder_2');
-    expect(updatedUntouched.isSynced, isTrue);
+    expect(service.getCommunitySavedSetIds(), ['public_2']);
   });
 
+  test('clearAllUserData clears community friend and saved set ids', () async {
+    await service.addCommunityFriendId('user_1');
+    await service.addCommunitySavedSetId('public_1');
+
+    await service.clearAllUserData();
+
+    expect(service.getCommunityFriendIds(), isEmpty);
+    expect(service.getCommunitySavedSetIds(), isEmpty);
+  });
+
+  test(
+    'clearFolderReference removes folderId and marks sets unsynced',
+    () async {
+      final linked = StudySet(
+        id: 'set_1',
+        title: 'Linked',
+        createdAt: DateTime.utc(2026, 3, 7),
+        cards: const [Flashcard(id: 'c1', term: 'a', definition: 'b')],
+        folderId: 'folder_1',
+        isSynced: true,
+      );
+      final untouched = StudySet(
+        id: 'set_2',
+        title: 'Other',
+        createdAt: DateTime.utc(2026, 3, 7),
+        cards: const [Flashcard(id: 'c2', term: 'c', definition: 'd')],
+        folderId: 'folder_2',
+        isSynced: true,
+      );
+
+      await service.saveStudySet(linked);
+      await service.saveStudySet(untouched);
+
+      await service.clearFolderReference('folder_1');
+
+      final updatedLinked = service.getStudySet('set_1');
+      final updatedUntouched = service.getStudySet('set_2');
+
+      expect(updatedLinked, isNotNull);
+      expect(updatedLinked!.folderId, isNull);
+      expect(updatedLinked.isSynced, isFalse);
+      expect(updatedLinked.updatedAt, isNotNull);
+
+      expect(updatedUntouched, isNotNull);
+      expect(updatedUntouched!.folderId, 'folder_2');
+      expect(updatedUntouched.isSynced, isTrue);
+    },
+  );
+
   test('deleteReviewLogsForSet removes only target set logs', () async {
-    await service.saveReviewLog(ReviewLog(
-      id: 'a1',
-      cardId: 'c1',
-      setId: 'set_a',
-      rating: 3,
-      state: 0,
-      reviewedAt: DateTime.utc(2026, 2, 15, 8),
-    ));
-    await service.saveReviewLog(ReviewLog(
-      id: 'a2',
-      cardId: 'c2',
-      setId: 'set_a',
-      rating: 4,
-      state: 1,
-      reviewedAt: DateTime.utc(2026, 2, 15, 9),
-    ));
-    await service.saveReviewLog(ReviewLog(
-      id: 'b1',
-      cardId: 'c3',
-      setId: 'set_b',
-      rating: 2,
-      state: 1,
-      reviewedAt: DateTime.utc(2026, 2, 15, 10),
-    ));
+    await service.saveReviewLog(
+      ReviewLog(
+        id: 'a1',
+        cardId: 'c1',
+        setId: 'set_a',
+        rating: 3,
+        state: 0,
+        reviewedAt: DateTime.utc(2026, 2, 15, 8),
+      ),
+    );
+    await service.saveReviewLog(
+      ReviewLog(
+        id: 'a2',
+        cardId: 'c2',
+        setId: 'set_a',
+        rating: 4,
+        state: 1,
+        reviewedAt: DateTime.utc(2026, 2, 15, 9),
+      ),
+    );
+    await service.saveReviewLog(
+      ReviewLog(
+        id: 'b1',
+        cardId: 'c3',
+        setId: 'set_b',
+        rating: 2,
+        state: 1,
+        reviewedAt: DateTime.utc(2026, 2, 15, 10),
+      ),
+    );
 
     await service.deleteReviewLogsForSet('set_a');
     final remainingIds = service.getAllReviewLogs().map((e) => e.id).toSet();
@@ -218,4 +259,3 @@ void main() {
     expect(remainingIds, {'b1'});
   });
 }
-

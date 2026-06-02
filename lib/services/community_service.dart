@@ -21,6 +21,8 @@ class PublicStudySet {
   final List<String> tags;
   final String category;
   final int downloadCount;
+  final int likeCount;
+  final int saveCount;
   final DateTime createdAt;
   final DateTime updatedAt;
 
@@ -35,6 +37,8 @@ class PublicStudySet {
     this.tags = const [],
     this.category = '',
     this.downloadCount = 0,
+    this.likeCount = 0,
+    this.saveCount = 0,
     required this.createdAt,
     required this.updatedAt,
   });
@@ -65,10 +69,14 @@ class PublicStudySet {
       authorName: json['author_name'] as String? ?? '',
       tags: tags,
       category: json['category'] as String? ?? '',
-      downloadCount: json['download_count'] as int? ?? 0,
-      createdAt: DateTime.tryParse(json['created_at'] as String? ?? '') ??
+      downloadCount: (json['download_count'] as num?)?.toInt() ?? 0,
+      likeCount: (json['like_count'] as num?)?.toInt() ?? 0,
+      saveCount: (json['save_count'] as num?)?.toInt() ?? 0,
+      createdAt:
+          DateTime.tryParse(json['created_at'] as String? ?? '') ??
           DateTime.now(),
-      updatedAt: DateTime.tryParse(json['updated_at'] as String? ?? '') ??
+      updatedAt:
+          DateTime.tryParse(json['updated_at'] as String? ?? '') ??
           DateTime.now(),
     );
   }
@@ -104,7 +112,10 @@ class CommunityService {
   }
 
   /// Publish a study set to the community.
-  Future<void> publishStudySet(StudySet studySet, {String category = ''}) async {
+  Future<void> publishStudySet(
+    StudySet studySet, {
+    String category = '',
+  }) async {
     final client = _client;
     if (client == null) throw Exception('Supabase not configured');
     final user = client.auth.currentUser;
@@ -118,8 +129,7 @@ class CommunityService {
           .select('display_name')
           .eq('user_id', user.id)
           .maybeSingle();
-      authorName =
-          (profile?['display_name'] as String?)?.trim() ?? '';
+      authorName = (profile?['display_name'] as String?)?.trim() ?? '';
     } catch (_) {}
     if (authorName.isEmpty) {
       authorName = user.email?.split('@').first ?? 'Anonymous';
@@ -134,13 +144,15 @@ class CommunityService {
     }
 
     final cardsJson = studySet.cards
-        .map((c) => {
-              'id': c.id,
-              'term': c.term,
-              'definition': c.definition,
-              'imageUrl': c.imageUrl,
-              'tags': c.tags,
-            })
+        .map(
+          (c) => {
+            'id': c.id,
+            'term': c.term,
+            'definition': c.definition,
+            'imageUrl': c.imageUrl,
+            'tags': c.tags,
+          },
+        )
         .toList();
     final nowIso = DateTime.now().toUtc().toIso8601String();
     String? existingId;
@@ -211,7 +223,9 @@ class CommunityService {
     if (client == null) return [];
 
     try {
-      var builder = client.from(SupabaseConstants.publicStudySetsTable).select();
+      var builder = client
+          .from(SupabaseConstants.publicStudySetsTable)
+          .select();
 
       // Apply category filter
       if (category != null && category.isNotEmpty) {
@@ -222,7 +236,8 @@ class CommunityService {
       if (query != null && query.trim().isNotEmpty) {
         final q = query.trim();
         builder = builder.or(
-            'title.ilike.%$q%,description.ilike.%$q%,author_name.ilike.%$q%');
+          'title.ilike.%$q%,description.ilike.%$q%,author_name.ilike.%$q%',
+        );
       }
 
       // Apply sort + range (order returns a different type so we chain directly)
@@ -230,6 +245,8 @@ class CommunityService {
       switch (sort) {
         case CommunitySortOption.trending:
           data = await builder
+              .order('like_count', ascending: false)
+              .order('save_count', ascending: false)
               .order('download_count', ascending: false)
               .order('created_at', ascending: false)
               .range(offset, offset + limit - 1);
@@ -295,9 +312,10 @@ class CommunityService {
       } catch (_) {}
 
       // Get stats via RPC
-      final stats = await client.rpc('get_user_public_stats', params: {
-        'target_user_id': userId,
-      });
+      final stats = await client.rpc(
+        'get_user_public_stats',
+        params: {'target_user_id': userId},
+      );
 
       return UserPublicProfile(
         userId: userId,
@@ -336,11 +354,95 @@ class CommunityService {
     if (client == null) return;
 
     try {
-      await client.rpc('increment_download_count', params: {
-        'set_id': publicSetId,
-      });
+      await client.rpc(
+        'record_community_download',
+        params: {'set_id': publicSetId},
+      );
     } catch (_) {
-      // Best effort — don't block the download
+      try {
+        await client.rpc(
+          'increment_download_count',
+          params: {'set_id': publicSetId},
+        );
+      } catch (_) {
+        // Best effort — don't block the download.
+      }
+    }
+  }
+
+  Future<List<String>> fetchMyLikedSetIds() async {
+    return _fetchMyInteractionSetIds(SupabaseConstants.communityLikesTable);
+  }
+
+  Future<List<String>> fetchMySavedSetIds() async {
+    return _fetchMyInteractionSetIds(SupabaseConstants.communitySavesTable);
+  }
+
+  Future<List<String>> fetchMyDownloadedSetIds() async {
+    return _fetchMyInteractionSetIds(SupabaseConstants.communityDownloadsTable);
+  }
+
+  Future<List<String>> _fetchMyInteractionSetIds(String table) async {
+    final client = _client;
+    final user = client?.auth.currentUser;
+    if (client == null || user == null) return [];
+
+    try {
+      final rows = await client
+          .from(table)
+          .select('public_set_id')
+          .eq('user_id', user.id);
+      return (rows as List)
+          .map(
+            (row) => (row as Map<String, dynamic>)['public_set_id'] as String,
+          )
+          .toList();
+    } catch (e) {
+      debugPrint('CommunityService._fetchMyInteractionSetIds error: $e');
+      return [];
+    }
+  }
+
+  Future<void> setLiked(String publicSetId, {required bool liked}) async {
+    await _setInteraction(
+      SupabaseConstants.communityLikesTable,
+      publicSetId,
+      enabled: liked,
+    );
+  }
+
+  Future<void> setSaved(String publicSetId, {required bool saved}) async {
+    await _setInteraction(
+      SupabaseConstants.communitySavesTable,
+      publicSetId,
+      enabled: saved,
+    );
+  }
+
+  Future<void> _setInteraction(
+    String table,
+    String publicSetId, {
+    required bool enabled,
+  }) async {
+    final client = _client;
+    final user = client?.auth.currentUser;
+    if (client == null || user == null) return;
+
+    try {
+      if (enabled) {
+        await client.from(table).upsert({
+          'user_id': user.id,
+          'public_set_id': publicSetId,
+        });
+      } else {
+        await client
+            .from(table)
+            .delete()
+            .eq('user_id', user.id)
+            .eq('public_set_id', publicSetId);
+      }
+    } catch (e) {
+      debugPrint('CommunityService._setInteraction error: $e');
     }
   }
 
@@ -413,13 +515,15 @@ class CommunityService {
   StudySet toLocalStudySet(PublicStudySet publicSet) {
     final newId = const Uuid().v4();
     final newCards = publicSet.cards
-        .map((c) => Flashcard(
-              id: const Uuid().v4(),
-              term: c.term,
-              definition: c.definition,
-              imageUrl: c.imageUrl,
-              tags: c.tags,
-            ))
+        .map(
+          (c) => Flashcard(
+            id: const Uuid().v4(),
+            term: c.term,
+            definition: c.definition,
+            imageUrl: c.imageUrl,
+            tags: c.tags,
+          ),
+        )
         .toList();
 
     return StudySet(

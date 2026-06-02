@@ -48,8 +48,11 @@ class UserProfileScreen extends ConsumerWidget {
                 ),
               ),
               const SizedBox(width: 8),
-              Icon(Icons.library_books_rounded,
-                  size: 18, color: AppTheme.indigo),
+              Icon(
+                Icons.library_books_rounded,
+                size: 18,
+                color: AppTheme.indigo,
+              ),
               const SizedBox(width: 6),
               Text(
                 l10n.profilePublishedSets,
@@ -69,8 +72,10 @@ class UserProfileScreen extends ConsumerWidget {
                   padding: const EdgeInsets.all(20),
                   child: Row(
                     children: [
-                      Icon(Icons.inbox_rounded,
-                          color: Theme.of(context).colorScheme.outline),
+                      Icon(
+                        Icons.inbox_rounded,
+                        color: Theme.of(context).colorScheme.outline,
+                      ),
                       const SizedBox(width: 10),
                       Text(l10n.profileNoSets),
                     ],
@@ -78,10 +83,14 @@ class UserProfileScreen extends ConsumerWidget {
                 );
               }
               return Column(
-                children: sets.map((ps) => _ProfileSetCard(
-                  publicSet: ps,
-                  onDownload: () => _downloadSet(context, ref, ps, l10n),
-                )).toList(),
+                children: sets
+                    .map(
+                      (ps) => _ProfileSetCard(
+                        publicSet: ps,
+                        onDownload: () => _downloadSet(context, ref, ps, l10n),
+                      ),
+                    )
+                    .toList(),
               );
             },
             loading: () => const Center(
@@ -122,7 +131,9 @@ class UserProfileScreen extends ConsumerWidget {
 
     final localSet = service.toLocalStudySet(publicSet);
     ref.read(studySetsProvider.notifier).add(localSet);
-    service.incrementDownloadCount(publicSet.id);
+    await service.incrementDownloadCount(publicSet.id);
+    ref.invalidate(communityDownloadedSetIdsProvider);
+    ref.invalidate(publicStudySetsProvider);
 
     if (context.mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -173,9 +184,7 @@ class _ProfileHeader extends StatelessWidget {
           ),
           const SizedBox(height: 12),
           Text(
-            profile.displayName.isNotEmpty
-                ? profile.displayName
-                : 'Anonymous',
+            profile.displayName.isNotEmpty ? profile.displayName : 'Anonymous',
             style: GoogleFonts.notoSerifTc(
               fontSize: 22,
               fontWeight: FontWeight.w700,
@@ -245,9 +254,9 @@ class _StatPill extends StatelessWidget {
           Text(
             label,
             style: Theme.of(context).textTheme.labelMedium?.copyWith(
-                  color: Theme.of(context).colorScheme.outline,
-                  fontWeight: FontWeight.w600,
-                ),
+              color: Theme.of(context).colorScheme.outline,
+              fontWeight: FontWeight.w600,
+            ),
           ),
         ],
       ),
@@ -259,10 +268,7 @@ class _ProfileSetCard extends StatelessWidget {
   final PublicStudySet publicSet;
   final VoidCallback onDownload;
 
-  const _ProfileSetCard({
-    required this.publicSet,
-    required this.onDownload,
-  });
+  const _ProfileSetCard({required this.publicSet, required this.onDownload});
 
   @override
   Widget build(BuildContext context) {
@@ -312,13 +318,16 @@ class _ProfileSetCard extends StatelessWidget {
                     const SizedBox(height: 3),
                     Row(
                       children: [
-                        Icon(Icons.download_rounded,
-                            size: 14,
-                            color: Theme.of(context).colorScheme.outline),
+                        Icon(
+                          Icons.download_rounded,
+                          size: 14,
+                          color: Theme.of(context).colorScheme.outline,
+                        ),
                         const SizedBox(width: 2),
                         Text(
                           '${publicSet.downloadCount}',
-                          style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          style: Theme.of(context).textTheme.bodySmall
+                              ?.copyWith(
                                 color: Theme.of(context).colorScheme.outline,
                               ),
                         ),

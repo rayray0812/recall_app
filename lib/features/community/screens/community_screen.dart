@@ -93,11 +93,17 @@ class _CommunityScreenState extends ConsumerState<CommunityScreen>
               decoration: InputDecoration(
                 hintText: l10n.communitySearchHint,
                 hintStyle: const TextStyle(color: _subtleText),
-                prefixIcon: const Icon(Icons.search_rounded, color: _subtleText),
+                prefixIcon: const Icon(
+                  Icons.search_rounded,
+                  color: _subtleText,
+                ),
                 suffixIcon: _query.isEmpty
                     ? null
                     : IconButton(
-                        icon: const Icon(Icons.close_rounded, color: _subtleText),
+                        icon: const Icon(
+                          Icons.close_rounded,
+                          color: _subtleText,
+                        ),
                         onPressed: _clearSearch,
                       ),
                 border: InputBorder.none,
@@ -226,9 +232,7 @@ class _CommunityScreenState extends ConsumerState<CommunityScreen>
           title: l10n.communityPublicResults,
         ),
         const SizedBox(height: 8),
-        _PublicSetsList(
-          query: PublicSetsQuery(search: _query),
-        ),
+        _PublicSetsList(query: PublicSetsQuery(search: _query)),
       ],
     );
   }
@@ -238,10 +242,12 @@ class _CommunityScreenState extends ConsumerState<CommunityScreen>
     final q = query.toLowerCase();
     return sets.where((set) {
       if (set.title.toLowerCase().contains(q)) return true;
-      return set.cards.any((c) =>
-          c.term.toLowerCase().contains(q) ||
-          c.definition.toLowerCase().contains(q) ||
-          c.tags.any((t) => t.toLowerCase().contains(q)));
+      return set.cards.any(
+        (c) =>
+            c.term.toLowerCase().contains(q) ||
+            c.definition.toLowerCase().contains(q) ||
+            c.tags.any((t) => t.toLowerCase().contains(q)),
+      );
     }).toList();
   }
 }
@@ -277,7 +283,26 @@ class _ExploreTabState extends ConsumerState<_ExploreTab> {
     return feedAsync.when(
       data: (feedSets) {
         final topTags = _extractTopTags(feedSets, fallbackLocalSets: localSets);
+        final categories = _extractCategories(feedSets);
         final latestLocalSet = _latestLocalSet(localSets);
+        final savedIds = ref.watch(communitySavedSetIdsProvider);
+        final downloadedSets = _findDownloadedPublicSets(feedSets, localSets);
+        final downloadedIds = {
+          ...downloadedSets.map((set) => set.id),
+          ...?ref.watch(communityDownloadedSetIdsProvider).value,
+        };
+        final recommendedSets = _buildRecommendedSets(
+          publicSets: feedSets,
+          localSets: localSets,
+          currentUserId: user?.id,
+        );
+        final savedSets = feedSets
+            .where((set) => savedIds.contains(set.id))
+            .take(4)
+            .toList();
+        final myPublishedSets = user == null
+            ? const <PublicStudySet>[]
+            : feedSets.where((set) => set.userId == user.id).take(4).toList();
         final friendIds = ref.watch(communityFriendIdsProvider);
         final weeklyMinutes = _estimateWeeklyMinutes(
           ref.watch(allReviewLogsProvider),
@@ -308,15 +333,62 @@ class _ExploreTabState extends ConsumerState<_ExploreTab> {
               _CommunityHeroCard(
                 title: l10n.communityTitle,
                 primaryLabel: latestLocalSet == null ? '開始探索' : '延續最近學習',
+                stats: [
+                  _CommunityHeroStat(label: '公開集', value: '${feedSets.length}'),
+                  _CommunityHeroStat(label: '已收藏', value: '${savedIds.length}'),
+                  _CommunityHeroStat(
+                    label: '已下載',
+                    value: '${downloadedIds.length}',
+                  ),
+                ],
                 onPrimaryTap: latestLocalSet == null
                     ? null
                     : () => context.push('/study/${latestLocalSet.id}'),
               ),
               const SizedBox(height: 20),
-              _SectionHeader(
-                icon: Icons.emoji_events_rounded,
-                title: '好友聯賽',
-              ),
+              if (categories.isNotEmpty) ...[
+                _SectionHeader(
+                  icon: Icons.category_rounded,
+                  title: l10n.communityAllCategories,
+                ),
+                const SizedBox(height: 10),
+                _CategoryFilterBar(
+                  categories: categories,
+                  selectedCategory: _selectedCategory,
+                  onSelected: (category) {
+                    setState(() => _selectedCategory = category);
+                  },
+                ),
+                const SizedBox(height: 20),
+              ],
+              if (recommendedSets.isNotEmpty) ...[
+                _SectionHeader(icon: Icons.auto_awesome_rounded, title: '為你推薦'),
+                const SizedBox(height: 10),
+                _PublicSetRail(
+                  sets: recommendedSets.take(4).toList(),
+                  emphasis: _PublicSetCardEmphasis.recommended,
+                ),
+                const SizedBox(height: 20),
+              ],
+              if (savedSets.isNotEmpty) ...[
+                _SectionHeader(icon: Icons.bookmark_rounded, title: '收藏清單'),
+                const SizedBox(height: 10),
+                _PublicSetRail(
+                  sets: savedSets,
+                  emphasis: _PublicSetCardEmphasis.saved,
+                ),
+                const SizedBox(height: 20),
+              ],
+              if (myPublishedSets.isNotEmpty) ...[
+                _SectionHeader(icon: Icons.cloud_done_rounded, title: '我的發布'),
+                const SizedBox(height: 10),
+                _PublicSetRail(
+                  sets: myPublishedSets,
+                  emphasis: _PublicSetCardEmphasis.owned,
+                ),
+                const SizedBox(height: 20),
+              ],
+              _SectionHeader(icon: Icons.emoji_events_rounded, title: '好友聯賽'),
               const SizedBox(height: 10),
               _FriendsLeagueCard(
                 entries: leagueEntries,
@@ -325,10 +397,10 @@ class _ExploreTabState extends ConsumerState<_ExploreTab> {
                 onManageFriends: friendCandidates.isEmpty
                     ? null
                     : () => _showFriendPickerSheet(
-                          context,
-                          friendCandidates,
-                          friendIds,
-                        ),
+                        context,
+                        friendCandidates,
+                        friendIds,
+                      ),
               ),
               const SizedBox(height: 20),
               _SectionHeader(
@@ -336,10 +408,7 @@ class _ExploreTabState extends ConsumerState<_ExploreTab> {
                 title: l10n.communityPopularTags,
               ),
               const SizedBox(height: 10),
-              _TagCloud(
-                tags: topTags,
-                onTagTap: widget.onTagTap,
-              ),
+              _TagCloud(tags: topTags, onTagTap: widget.onTagTap),
               const SizedBox(height: 20),
               _SectionHeader(
                 icon: Icons.trending_up_rounded,
@@ -362,7 +431,8 @@ class _ExploreTabState extends ConsumerState<_ExploreTab> {
                       label: l10n.communitySortNewest,
                       icon: Icons.schedule_rounded,
                       selected: _sort == CommunitySortOption.newest,
-                      onTap: () => setState(() => _sort = CommunitySortOption.newest),
+                      onTap: () =>
+                          setState(() => _sort = CommunitySortOption.newest),
                     ),
                     const SizedBox(width: 8),
                     _SortChip(
@@ -377,7 +447,10 @@ class _ExploreTabState extends ConsumerState<_ExploreTab> {
                 ),
               ),
               const SizedBox(height: 12),
-              _PublicSetsList(query: feedQuery),
+              _PublicSetsList(
+                query: feedQuery,
+                downloadedPublicSetIds: downloadedIds,
+              ),
               if (user != null) ...[
                 const SizedBox(height: 24),
                 Container(
@@ -460,14 +533,6 @@ class _ExploreTabState extends ConsumerState<_ExploreTab> {
     );
   }
 
-  void _showPreviewForSet(
-    BuildContext context,
-    WidgetRef ref,
-    PublicStudySet publicSet,
-  ) {
-    _PublicSetCard(publicSet: publicSet).showPreview(context, ref);
-  }
-
   StudySet? _latestLocalSet(List<StudySet> localSets) {
     if (localSets.isEmpty) return null;
     final sorted = [...localSets]
@@ -485,7 +550,9 @@ class _ExploreTabState extends ConsumerState<_ExploreTab> {
   ) {
     final service = ref.read(communityServiceProvider);
     return publicSets
-        .where((set) => service.findMatchingLocalStudySet(set, localSets) != null)
+        .where(
+          (set) => service.findMatchingLocalStudySet(set, localSets) != null,
+        )
         .toList();
   }
 
@@ -500,6 +567,8 @@ class _ExploreTabState extends ConsumerState<_ExploreTab> {
       localKeywords.addAll(_tokenize(set.title));
       localKeywords.addAll(_tokenize(set.description));
       for (final card in set.cards) {
+        localKeywords.addAll(_tokenize(card.term));
+        localKeywords.addAll(_tokenize(card.definition));
         localKeywords.addAll(card.tags.map((tag) => tag.trim().toLowerCase()));
       }
     }
@@ -516,7 +585,9 @@ class _ExploreTabState extends ConsumerState<_ExploreTab> {
     scored.sort((a, b) {
       final byScore = b.score.compareTo(a.score);
       if (byScore != 0) return byScore;
-      return b.set.downloadCount.compareTo(a.set.downloadCount);
+      final byDownloads = b.set.downloadCount.compareTo(a.set.downloadCount);
+      if (byDownloads != 0) return byDownloads;
+      return b.set.createdAt.compareTo(a.set.createdAt);
     });
     return scored.map((item) => item.set).toList();
   }
@@ -529,8 +600,16 @@ class _ExploreTabState extends ConsumerState<_ExploreTab> {
     for (final token in _tokenize(set.description)) {
       if (localKeywords.contains(token)) score += 1;
     }
+    for (final card in set.cards) {
+      for (final token in _tokenize(card.term)) {
+        if (localKeywords.contains(token)) score += 2;
+      }
+      for (final token in _tokenize(card.definition)) {
+        if (localKeywords.contains(token)) score += 1;
+      }
+    }
     for (final tag in set.tags.map((tag) => tag.trim().toLowerCase())) {
-      if (localKeywords.contains(tag)) score += 5;
+      if (localKeywords.contains(tag)) score += 6;
     }
     return score;
   }
@@ -572,12 +651,13 @@ class _ExploreTabState extends ConsumerState<_ExploreTab> {
   }
 
   List<String> _extractCategories(List<PublicStudySet> publicSets) {
-    final categories = publicSets
-        .map((set) => set.category.trim())
-        .where((category) => category.isNotEmpty)
-        .toSet()
-        .toList()
-      ..sort();
+    final categories =
+        publicSets
+            .map((set) => set.category.trim())
+            .where((category) => category.isNotEmpty)
+            .toSet()
+            .toList()
+          ..sort();
     return categories;
   }
 
@@ -608,28 +688,37 @@ class _ExploreTabState extends ConsumerState<_ExploreTab> {
       if (set.userId == currentUserId) continue;
       grouped.putIfAbsent(set.userId, () => <PublicStudySet>[]).add(set);
     }
-    final candidates = grouped.entries.map((entry) {
-      final sets = entry.value;
-      final authorName = sets.first.authorName.trim().isEmpty
-          ? 'Learner'
-          : sets.first.authorName.trim();
-      final publishedCount = sets.length;
-      final totalDownloads = sets.fold<int>(
-        0,
-        (sum, set) => sum + set.downloadCount,
-      );
-      final cardVolume = sets.fold<int>(0, (sum, set) => sum + set.cards.length);
-      final estimatedMinutes =
-          18 + (publishedCount * 9) + (totalDownloads ~/ 2) + (cardVolume ~/ 3);
-      return _FriendCandidate(
-        userId: entry.key,
-        displayName: authorName,
-        publishedCount: publishedCount,
-        totalDownloads: totalDownloads,
-        estimatedWeeklyMinutes: estimatedMinutes,
-      );
-    }).toList()
-      ..sort((a, b) => b.estimatedWeeklyMinutes.compareTo(a.estimatedWeeklyMinutes));
+    final candidates =
+        grouped.entries.map((entry) {
+          final sets = entry.value;
+          final authorName = sets.first.authorName.trim().isEmpty
+              ? 'Learner'
+              : sets.first.authorName.trim();
+          final publishedCount = sets.length;
+          final totalDownloads = sets.fold<int>(
+            0,
+            (sum, set) => sum + set.downloadCount,
+          );
+          final cardVolume = sets.fold<int>(
+            0,
+            (sum, set) => sum + set.cards.length,
+          );
+          final estimatedMinutes =
+              18 +
+              (publishedCount * 9) +
+              (totalDownloads ~/ 2) +
+              (cardVolume ~/ 3);
+          return _FriendCandidate(
+            userId: entry.key,
+            displayName: authorName,
+            publishedCount: publishedCount,
+            totalDownloads: totalDownloads,
+            estimatedWeeklyMinutes: estimatedMinutes,
+          );
+        }).toList()..sort(
+          (a, b) =>
+              b.estimatedWeeklyMinutes.compareTo(a.estimatedWeeklyMinutes),
+        );
     return candidates;
   }
 
@@ -729,8 +818,9 @@ class _ExploreTabState extends ConsumerState<_ExploreTab> {
                           candidate: candidate,
                           isFriend: isFriend,
                           onToggle: () async {
-                            final notifier =
-                                ref.read(communityFriendIdsProvider.notifier);
+                            final notifier = ref.read(
+                              communityFriendIdsProvider.notifier,
+                            );
                             if (isFriend) {
                               await notifier.remove(candidate.userId);
                             } else {
@@ -759,11 +849,13 @@ class _CommunityHeroCard extends StatelessWidget {
     required this.title,
     required this.primaryLabel,
     required this.onPrimaryTap,
+    this.stats = const [],
   });
 
   final String title;
   final String primaryLabel;
   final VoidCallback? onPrimaryTap;
+  final List<_CommunityHeroStat> stats;
 
   @override
   Widget build(BuildContext context) {
@@ -782,31 +874,50 @@ class _CommunityHeroCard extends StatelessWidget {
         borderRadius: BorderRadius.circular(20),
         border: Border.all(color: const Color(0xFFE6E0D5)),
       ),
-      child: Row(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Expanded(
-            child: Text(
-              title,
-              style: GoogleFonts.notoSerifTc(
-                fontSize: 20,
-                fontWeight: FontWeight.w700,
-                color: _darkText,
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  title,
+                  style: GoogleFonts.notoSerifTc(
+                    fontSize: 20,
+                    fontWeight: FontWeight.w700,
+                    color: _darkText,
+                  ),
+                ),
               ),
+              const SizedBox(width: 12),
+              FilledButton(onPressed: onPrimaryTap, child: Text(primaryLabel)),
+            ],
+          ),
+          if (stats.isNotEmpty) ...[
+            const SizedBox(height: 14),
+            Row(
+              children: stats
+                  .map(
+                    (stat) => Expanded(
+                      child: Padding(
+                        padding: EdgeInsets.only(
+                          right: stat == stats.last ? 0 : 8,
+                        ),
+                        child: stat,
+                      ),
+                    ),
+                  )
+                  .toList(),
             ),
-          ),
-          const SizedBox(width: 12),
-          FilledButton(
-            onPressed: onPrimaryTap,
-            child: Text(primaryLabel),
-          ),
+          ],
         ],
       ),
     );
   }
 }
 
-class _HeroStat extends StatelessWidget {
-  const _HeroStat({required this.label, required this.value});
+class _CommunityHeroStat extends StatelessWidget {
+  const _CommunityHeroStat({required this.label, required this.value});
 
   final String label;
   final String value;
@@ -814,18 +925,19 @@ class _HeroStat extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 9),
       decoration: BoxDecoration(
         color: Colors.white.withValues(alpha: 0.72),
-        borderRadius: BorderRadius.circular(14),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.5)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
             value,
-            style: GoogleFonts.notoSerifTc(
-              fontSize: 20,
+            style: const TextStyle(
+              fontSize: 16,
               fontWeight: FontWeight.w800,
               color: _darkText,
             ),
@@ -833,10 +945,12 @@ class _HeroStat extends StatelessWidget {
           const SizedBox(height: 2),
           Text(
             label,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
             style: const TextStyle(
-              fontSize: 12,
-              color: _subtleText,
+              fontSize: 11,
               fontWeight: FontWeight.w600,
+              color: _subtleText,
             ),
           ),
         ],
@@ -845,117 +959,106 @@ class _HeroStat extends StatelessWidget {
   }
 }
 
-class _QuickActionTileData {
-  const _QuickActionTileData({
-    required this.title,
-    required this.subtitle,
-    required this.icon,
-    required this.accent,
-    this.onTap,
+class _CategoryFilterBar extends StatelessWidget {
+  const _CategoryFilterBar({
+    required this.categories,
+    required this.selectedCategory,
+    required this.onSelected,
   });
 
-  final String title;
-  final String subtitle;
-  final IconData icon;
-  final Color accent;
-  final VoidCallback? onTap;
-}
-
-class _QuickActionGrid extends StatelessWidget {
-  const _QuickActionGrid({required this.tiles});
-
-  final List<_QuickActionTileData> tiles;
+  final List<String> categories;
+  final String selectedCategory;
+  final ValueChanged<String> onSelected;
 
   @override
   Widget build(BuildContext context) {
-    return Row(
-      children: tiles
-          .map(
-            (tile) => Expanded(
-              child: Padding(
-                padding: EdgeInsets.only(
-                  right: tile == tiles.last ? 0 : 10,
-                ),
-                child: _QuickActionTile(tile: tile),
+    return SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      child: Row(
+        children: [
+          _CategoryChip(
+            label: AppLocalizations.of(context).communityAllCategories,
+            selected: selectedCategory.isEmpty,
+            onTap: () => onSelected(''),
+          ),
+          const SizedBox(width: 8),
+          ...categories.map(
+            (category) => Padding(
+              padding: const EdgeInsets.only(right: 8),
+              child: _CategoryChip(
+                label: category,
+                selected: selectedCategory == category,
+                onTap: () => onSelected(category),
               ),
             ),
-          )
-          .toList(),
+          ),
+        ],
+      ),
     );
   }
 }
 
-class _QuickActionTile extends StatelessWidget {
-  const _QuickActionTile({required this.tile});
+class _CategoryChip extends StatelessWidget {
+  const _CategoryChip({
+    required this.label,
+    required this.selected,
+    required this.onTap,
+  });
 
-  final _QuickActionTileData tile;
+  final String label;
+  final bool selected;
+  final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
     return InkWell(
-      onTap: tile.onTap,
-      borderRadius: BorderRadius.circular(18),
-      child: Container(
-        padding: const EdgeInsets.all(14),
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(999),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 160),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
         decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(18),
-          border: Border.all(color: const Color(0xFFE8E2D7)),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withValues(alpha: 0.03),
-              blurRadius: 12,
-              offset: const Offset(0, 4),
-            ),
-          ],
+          color: selected
+              ? AppTheme.indigo.withValues(alpha: 0.12)
+              : Colors.white,
+          borderRadius: BorderRadius.circular(999),
+          border: Border.all(
+            color: selected
+                ? AppTheme.indigo.withValues(alpha: 0.42)
+                : const Color(0xFFE2DDD2),
+          ),
         ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Container(
-              width: 42,
-              height: 42,
-              decoration: BoxDecoration(
-                color: tile.accent.withValues(alpha: 0.12),
-                borderRadius: BorderRadius.circular(14),
-              ),
-              child: Icon(tile.icon, color: tile.accent),
-            ),
-            const SizedBox(height: 12),
-            Text(
-              tile.title,
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
-              style: const TextStyle(
-                fontSize: 14,
-                fontWeight: FontWeight.w700,
-                color: _darkText,
-              ),
-            ),
-            const SizedBox(height: 4),
-            Text(
-              tile.subtitle,
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
-              style: const TextStyle(
-                fontSize: 12,
-                color: _subtleText,
-                height: 1.4,
-              ),
-            ),
-          ],
+        child: Text(
+          label,
+          style: TextStyle(
+            fontSize: 13,
+            fontWeight: FontWeight.w700,
+            color: selected ? AppTheme.indigo : _darkText,
+          ),
         ),
       ),
     );
   }
 }
 
+class _PublicSetRail extends StatelessWidget {
+  const _PublicSetRail({required this.sets, required this.emphasis});
+
+  final List<PublicStudySet> sets;
+  final _PublicSetCardEmphasis emphasis;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: sets
+          .map((set) => _PublicSetCard(publicSet: set, emphasis: emphasis))
+          .toList(),
+    );
+  }
+}
+
 class _TagCloud extends StatelessWidget {
-  const _TagCloud({
-    required this.tags,
-    required this.onTagTap,
-  });
+  const _TagCloud({required this.tags, required this.onTagTap});
 
   final List<String> tags;
   final ValueChanged<String> onTagTap;
@@ -986,7 +1089,10 @@ class _TagCloud extends StatelessWidget {
               onTap: () => onTagTap(tag),
               borderRadius: BorderRadius.circular(999),
               child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 14,
+                  vertical: 9,
+                ),
                 decoration: BoxDecoration(
                   color: Colors.white,
                   borderRadius: BorderRadius.circular(999),
@@ -1004,47 +1110,6 @@ class _TagCloud extends StatelessWidget {
             ),
           )
           .toList(),
-    );
-  }
-}
-
-class _CategoryChip extends StatelessWidget {
-  const _CategoryChip({
-    required this.label,
-    required this.selected,
-    required this.onTap,
-  });
-
-  final String label;
-  final bool selected;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(999),
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 160),
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
-        decoration: BoxDecoration(
-          color: selected ? AppTheme.indigo.withValues(alpha: 0.12) : Colors.white,
-          borderRadius: BorderRadius.circular(999),
-          border: Border.all(
-            color: selected
-                ? AppTheme.indigo.withValues(alpha: 0.42)
-                : const Color(0xFFE2DDD2),
-          ),
-        ),
-        child: Text(
-          label,
-          style: TextStyle(
-            fontSize: 13,
-            fontWeight: FontWeight.w700,
-            color: selected ? AppTheme.indigo : _darkText,
-          ),
-        ),
-      ),
     );
   }
 }
@@ -1148,7 +1213,9 @@ class _FriendsLeagueCard extends StatelessWidget {
             final rank = entry.key + 1;
             final item = entry.value;
             return Container(
-              margin: EdgeInsets.only(bottom: rank == entries.take(5).length ? 0 : 8),
+              margin: EdgeInsets.only(
+                bottom: rank == entries.take(5).length ? 0 : 8,
+              ),
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
               decoration: BoxDecoration(
                 color: item.isCurrentUser
@@ -1183,8 +1250,9 @@ class _FriendsLeagueCard extends StatelessWidget {
                       item.displayName,
                       style: TextStyle(
                         fontSize: 14,
-                        fontWeight:
-                            item.isCurrentUser ? FontWeight.w800 : FontWeight.w600,
+                        fontWeight: item.isCurrentUser
+                            ? FontWeight.w800
+                            : FontWeight.w600,
                         color: _darkText,
                       ),
                     ),
@@ -1277,8 +1345,6 @@ class _FriendCandidateTile extends StatelessWidget {
     );
   }
 }
-
-enum _PublicSetCardEmphasis { normal, recommended, downloaded, owned }
 
 // -- Sort Chip --
 
@@ -1374,11 +1440,7 @@ class _ClassroomTabState extends ConsumerState<_ClassroomTab> {
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                const Icon(
-                  Icons.lock_rounded,
-                  size: 48,
-                  color: _subtleText,
-                ),
+                const Icon(Icons.lock_rounded, size: 48, color: _subtleText),
                 const SizedBox(height: 16),
                 Text(
                   l10n.communityLoginRequired,
@@ -1392,10 +1454,7 @@ class _ClassroomTabState extends ConsumerState<_ClassroomTab> {
                 const SizedBox(height: 8),
                 Text(
                   l10n.communityLoginHint,
-                  style: const TextStyle(
-                    fontSize: 13,
-                    color: _subtleText,
-                  ),
+                  style: const TextStyle(fontSize: 13, color: _subtleText),
                   textAlign: TextAlign.center,
                 ),
                 const SizedBox(height: 18),
@@ -1456,10 +1515,7 @@ class _ClassroomTabState extends ConsumerState<_ClassroomTab> {
                     const SizedBox(height: 4),
                     Text(
                       l10n.communityClassroomHint,
-                      style: const TextStyle(
-                        fontSize: 13,
-                        color: _subtleText,
-                      ),
+                      style: const TextStyle(fontSize: 13, color: _subtleText),
                     ),
                     const SizedBox(height: 12),
                     // Role toggle
@@ -1551,10 +1607,8 @@ class _ClassroomTabState extends ConsumerState<_ClassroomTab> {
                 )
               else
                 ...classes.map(
-                  (classroom) => _EmbeddedClassCard(
-                    classroom: classroom,
-                    role: role,
-                  ),
+                  (classroom) =>
+                      _EmbeddedClassCard(classroom: classroom, role: role),
                 ),
             ],
           ),
@@ -1591,7 +1645,9 @@ class _ClassroomTabState extends ConsumerState<_ClassroomTab> {
   }
 
   Future<void> _showCreateClassDialog(
-      BuildContext context, WidgetRef ref) async {
+    BuildContext context,
+    WidgetRef ref,
+  ) async {
     final nameController = TextEditingController();
     final subjectController = TextEditingController();
     final gradeController = TextEditingController();
@@ -1607,8 +1663,9 @@ class _ClassroomTabState extends ConsumerState<_ClassroomTab> {
             children: [
               TextField(
                 controller: nameController,
-                decoration:
-                    const InputDecoration(labelText: '\u73ED\u7D1A\u540D\u7A31'),
+                decoration: const InputDecoration(
+                  labelText: '\u73ED\u7D1A\u540D\u7A31',
+                ),
               ),
               const SizedBox(height: 8),
               TextField(
@@ -1632,7 +1689,9 @@ class _ClassroomTabState extends ConsumerState<_ClassroomTab> {
             onPressed: () async {
               if (nameController.text.trim().isEmpty) return;
               try {
-                await ref.read(classroomServiceProvider).createClass(
+                await ref
+                    .read(classroomServiceProvider)
+                    .createClass(
                       name: nameController.text,
                       subject: subjectController.text,
                       grade: gradeController.text,
@@ -1641,8 +1700,10 @@ class _ClassroomTabState extends ConsumerState<_ClassroomTab> {
               } catch (e) {
                 messenger.showSnackBar(
                   SnackBar(
-                      content: Text(
-                          '\u5EFA\u7ACB\u73ED\u7D1A\u5931\u6557\uFF1A$e')),
+                    content: Text(
+                      '\u5EFA\u7ACB\u73ED\u7D1A\u5931\u6557\uFF1A$e',
+                    ),
+                  ),
                 );
               }
             },
@@ -1659,8 +1720,7 @@ class _ClassroomTabState extends ConsumerState<_ClassroomTab> {
     }
   }
 
-  Future<void> _showJoinClassDialog(
-      BuildContext context, WidgetRef ref) async {
+  Future<void> _showJoinClassDialog(BuildContext context, WidgetRef ref) async {
     final codeController = TextEditingController();
     final messenger = ScaffoldMessenger.of(context);
 
@@ -1691,8 +1751,10 @@ class _ClassroomTabState extends ConsumerState<_ClassroomTab> {
               } catch (e) {
                 messenger.showSnackBar(
                   SnackBar(
-                      content: Text(
-                          '\u52A0\u5165\u73ED\u7D1A\u5931\u6557\uFF1A$e')),
+                    content: Text(
+                      '\u52A0\u5165\u73ED\u7D1A\u5931\u6557\uFF1A$e',
+                    ),
+                  ),
                 );
               }
             },
@@ -1718,9 +1780,10 @@ class _EmbeddedClassCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final subtitle = [classroom.subject, classroom.grade]
-        .where((s) => s.trim().isNotEmpty)
-        .join(' \u00B7 ');
+    final subtitle = [
+      classroom.subject,
+      classroom.grade,
+    ].where((s) => s.trim().isNotEmpty).join(' \u00B7 ');
 
     return Container(
       margin: const EdgeInsets.only(bottom: 10),
@@ -1803,18 +1866,12 @@ class _EmbeddedClassCard extends StatelessWidget {
                       subtitle.isEmpty
                           ? '\u5C1A\u672A\u8A2D\u5B9A\u79D1\u76EE\u6216\u5E74\u7D1A'
                           : subtitle,
-                      style: const TextStyle(
-                        fontSize: 13,
-                        color: _subtleText,
-                      ),
+                      style: const TextStyle(fontSize: 13, color: _subtleText),
                     ),
                   ],
                 ),
               ),
-              const Icon(
-                Icons.chevron_right_rounded,
-                color: _subtleText,
-              ),
+              const Icon(Icons.chevron_right_rounded, color: _subtleText),
             ],
           ),
         ),
@@ -1825,10 +1882,16 @@ class _EmbeddedClassCard extends StatelessWidget {
 
 // -- Public Sets List --
 
+enum _PublicSetCardEmphasis { normal, recommended, saved, owned, downloaded }
+
 class _PublicSetsList extends ConsumerWidget {
   final PublicSetsQuery query;
+  final Set<String> downloadedPublicSetIds;
 
-  const _PublicSetsList({required this.query});
+  const _PublicSetsList({
+    required this.query,
+    this.downloadedPublicSetIds = const {},
+  });
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -1847,18 +1910,12 @@ class _PublicSetsList extends ConsumerWidget {
             ),
             child: Row(
               children: [
-                const Icon(
-                  Icons.search_off_rounded,
-                  color: _subtleText,
-                ),
+                const Icon(Icons.search_off_rounded, color: _subtleText),
                 const SizedBox(width: 10),
                 Expanded(
                   child: Text(
                     l10n.communityNoPublicSets,
-                    style: const TextStyle(
-                      color: _darkText,
-                      fontSize: 14,
-                    ),
+                    style: const TextStyle(color: _darkText, fontSize: 14),
                   ),
                 ),
               ],
@@ -1867,7 +1924,16 @@ class _PublicSetsList extends ConsumerWidget {
         }
 
         return Column(
-          children: sets.map((ps) => _PublicSetCard(publicSet: ps)).toList(),
+          children: sets
+              .map(
+                (ps) => _PublicSetCard(
+                  publicSet: ps,
+                  emphasis: downloadedPublicSetIds.contains(ps.id)
+                      ? _PublicSetCardEmphasis.downloaded
+                      : _PublicSetCardEmphasis.normal,
+                ),
+              )
+              .toList(),
         );
       },
       loading: () => const Center(
@@ -1896,16 +1962,22 @@ class _PublicSetsList extends ConsumerWidget {
 class _PublicSetCard extends ConsumerWidget {
   final PublicStudySet publicSet;
   final _PublicSetCardEmphasis emphasis;
-  final String? recommendationLabel;
 
   const _PublicSetCard({
     required this.publicSet,
     this.emphasis = _PublicSetCardEmphasis.normal,
-    this.recommendationLabel,
   });
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final isSaved = ref.watch(
+      communitySavedSetIdsProvider.select((ids) => ids.contains(publicSet.id)),
+    );
+    final isLiked = ref.watch(
+      communityLikedSetIdsProvider.select((ids) => ids.contains(publicSet.id)),
+    );
+    final isLoggedIn = ref.watch(currentUserProvider) != null;
+    final badge = _badge(context);
     return Container(
       margin: const EdgeInsets.only(bottom: 10),
       decoration: BoxDecoration(
@@ -1965,8 +2037,8 @@ class _PublicSetCard extends ConsumerWidget {
                       children: [
                         // Tappable author name → profile
                         GestureDetector(
-                          onTap: () => context
-                              .push('/profile/${publicSet.userId}'),
+                          onTap: () =>
+                              context.push('/profile/${publicSet.userId}'),
                           child: Row(
                             mainAxisSize: MainAxisSize.min,
                             children: [
@@ -2003,6 +2075,20 @@ class _PublicSetCard extends ConsumerWidget {
                             fontSize: 13,
                           ),
                         ),
+                        const SizedBox(width: 8),
+                        const Icon(
+                          Icons.favorite_rounded,
+                          size: 14,
+                          color: _subtleText,
+                        ),
+                        const SizedBox(width: 2),
+                        Text(
+                          '${publicSet.likeCount}',
+                          style: const TextStyle(
+                            color: _subtleText,
+                            fontSize: 13,
+                          ),
+                        ),
                       ],
                     ),
                     // Tags inline
@@ -2011,29 +2097,41 @@ class _PublicSetCard extends ConsumerWidget {
                       Wrap(
                         spacing: 4,
                         runSpacing: 4,
-                        children: publicSet.tags.take(3).map((t) => Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                          decoration: BoxDecoration(
-                            color: const Color(0xFFF0F0F0),
-                            borderRadius: BorderRadius.circular(6),
-                          ),
-                          child: Text(
-                            t,
-                            style: const TextStyle(
-                              fontSize: 11,
-                              fontWeight: FontWeight.w600,
-                              color: _darkText,
-                            ),
-                          ),
-                        )).toList(),
+                        children: publicSet.tags
+                            .take(3)
+                            .map(
+                              (t) => Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 8,
+                                  vertical: 2,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFFF0F0F0),
+                                  borderRadius: BorderRadius.circular(6),
+                                ),
+                                child: Text(
+                                  t,
+                                  style: const TextStyle(
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.w600,
+                                    color: _darkText,
+                                  ),
+                                ),
+                              ),
+                            )
+                            .toList(),
                       ),
                     ],
                   ],
                 ),
               ),
-              if (_isOwn(ref))
+              if (badge != null) ...[const SizedBox(width: 8), badge],
+              if (_isOwn(ref) && emphasis != _PublicSetCardEmphasis.owned)
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 6,
+                    vertical: 3,
+                  ),
                   decoration: BoxDecoration(
                     color: AppTheme.green.withValues(alpha: 0.1),
                     borderRadius: BorderRadius.circular(6),
@@ -2048,9 +2146,43 @@ class _PublicSetCard extends ConsumerWidget {
                   ),
                 )
               else
-                const Icon(
-                  Icons.chevron_right_rounded,
-                  color: _subtleText,
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    if (isLoggedIn)
+                      IconButton(
+                        tooltip: isLiked ? '取消讚' : '按讚',
+                        visualDensity: VisualDensity.compact,
+                        onPressed: () async {
+                          await ref
+                              .read(communityLikedSetIdsProvider.notifier)
+                              .toggle(publicSet.id);
+                          ref.invalidate(publicStudySetsProvider);
+                        },
+                        icon: Icon(
+                          isLiked
+                              ? Icons.favorite_rounded
+                              : Icons.favorite_border_rounded,
+                          color: isLiked ? AppTheme.red : _subtleText,
+                        ),
+                      ),
+                    IconButton(
+                      tooltip: isSaved ? '取消收藏' : '收藏',
+                      visualDensity: VisualDensity.compact,
+                      onPressed: () async {
+                        await ref
+                            .read(communitySavedSetIdsProvider.notifier)
+                            .toggle(publicSet.id);
+                        ref.invalidate(publicStudySetsProvider);
+                      },
+                      icon: Icon(
+                        isSaved
+                            ? Icons.bookmark_rounded
+                            : Icons.bookmark_border_rounded,
+                        color: isSaved ? AppTheme.gold : _subtleText,
+                      ),
+                    ),
+                  ],
                 ),
             ],
           ),
@@ -2064,9 +2196,44 @@ class _PublicSetCard extends ConsumerWidget {
     return user != null && user.id == publicSet.userId;
   }
 
+  Widget? _badge(BuildContext context) {
+    final (label, color) = switch (emphasis) {
+      _PublicSetCardEmphasis.recommended => ('推薦', AppTheme.indigo),
+      _PublicSetCardEmphasis.saved => ('收藏', AppTheme.gold),
+      _PublicSetCardEmphasis.downloaded => ('已下載', AppTheme.green),
+      _PublicSetCardEmphasis.owned => (
+        AppLocalizations.of(context).communityMyPublished,
+        AppTheme.green,
+      ),
+      _PublicSetCardEmphasis.normal => ('', Colors.transparent),
+    };
+    if (label.isEmpty) return null;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 4),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.10),
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Text(
+        label,
+        style: TextStyle(
+          fontSize: 10,
+          fontWeight: FontWeight.w800,
+          color: color,
+        ),
+      ),
+    );
+  }
+
   void showPreview(BuildContext context, WidgetRef ref) {
     final l10n = AppLocalizations.of(context);
     final user = ref.read(currentUserProvider);
+    final isSaved = ref
+        .read(communitySavedSetIdsProvider)
+        .contains(publicSet.id);
+    final isLiked = ref
+        .read(communityLikedSetIdsProvider)
+        .contains(publicSet.id);
 
     showModalBottomSheet(
       context: context,
@@ -2079,9 +2246,7 @@ class _PublicSetCard extends ConsumerWidget {
         builder: (context, scrollController) => Container(
           decoration: BoxDecoration(
             color: Theme.of(context).colorScheme.surface,
-            borderRadius: const BorderRadius.vertical(
-              top: Radius.circular(24),
-            ),
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
           ),
           child: Column(
             children: [
@@ -2114,10 +2279,25 @@ class _PublicSetCard extends ConsumerWidget {
                           ),
                         ),
                         // Report button
-                        if (user != null &&
-                            user.id != publicSet.userId)
+                        IconButton(
+                          onPressed: () async {
+                            await ref
+                                .read(communitySavedSetIdsProvider.notifier)
+                                .toggle(publicSet.id);
+                            ref.invalidate(publicStudySetsProvider);
+                          },
+                          icon: Icon(
+                            isSaved
+                                ? Icons.bookmark_rounded
+                                : Icons.bookmark_border_rounded,
+                          ),
+                          tooltip: isSaved ? '取消收藏' : '收藏',
+                          color: isSaved ? AppTheme.gold : _subtleText,
+                        ),
+                        if (user != null && user.id != publicSet.userId)
                           IconButton(
-                            onPressed: () => _showReportDialog(context, ref, l10n),
+                            onPressed: () =>
+                                _showReportDialog(context, ref, l10n),
                             icon: const Icon(Icons.flag_outlined, size: 20),
                             tooltip: l10n.communityReport,
                             color: _subtleText,
@@ -2135,8 +2315,11 @@ class _PublicSetCard extends ConsumerWidget {
                           child: Row(
                             mainAxisSize: MainAxisSize.min,
                             children: [
-                              Icon(Icons.person_outline_rounded,
-                                  size: 16, color: AppTheme.indigo),
+                              Icon(
+                                Icons.person_outline_rounded,
+                                size: 16,
+                                color: AppTheme.indigo,
+                              ),
                               const SizedBox(width: 4),
                               Text(
                                 publicSet.authorName,
@@ -2165,6 +2348,34 @@ class _PublicSetCard extends ConsumerWidget {
                         ),
                         const SizedBox(width: 14),
                         const Icon(
+                          Icons.favorite_rounded,
+                          size: 16,
+                          color: _subtleText,
+                        ),
+                        const SizedBox(width: 4),
+                        Text(
+                          '${publicSet.likeCount}',
+                          style: const TextStyle(
+                            fontSize: 13,
+                            color: _subtleText,
+                          ),
+                        ),
+                        const SizedBox(width: 14),
+                        const Icon(
+                          Icons.bookmark_rounded,
+                          size: 16,
+                          color: _subtleText,
+                        ),
+                        const SizedBox(width: 4),
+                        Text(
+                          '${publicSet.saveCount}',
+                          style: const TextStyle(
+                            fontSize: 13,
+                            color: _subtleText,
+                          ),
+                        ),
+                        const SizedBox(width: 14),
+                        const Icon(
                           Icons.download_rounded,
                           size: 16,
                           color: _subtleText,
@@ -2183,10 +2394,7 @@ class _PublicSetCard extends ConsumerWidget {
                       const SizedBox(height: 8),
                       Text(
                         publicSet.description,
-                        style: const TextStyle(
-                          fontSize: 14,
-                          color: _darkText,
-                        ),
+                        style: const TextStyle(fontSize: 14, color: _darkText),
                       ),
                     ],
                     if (publicSet.tags.isNotEmpty) ...[
@@ -2195,24 +2403,26 @@ class _PublicSetCard extends ConsumerWidget {
                         spacing: 6,
                         runSpacing: 6,
                         children: publicSet.tags
-                            .map((t) => Container(
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 10,
-                                    vertical: 4,
+                            .map(
+                              (t) => Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 10,
+                                  vertical: 4,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFFF0F0F0),
+                                  borderRadius: BorderRadius.circular(8),
+                                ),
+                                child: Text(
+                                  '# $t',
+                                  style: const TextStyle(
+                                    fontSize: 12,
+                                    color: _darkText,
+                                    fontWeight: FontWeight.w600,
                                   ),
-                                  decoration: BoxDecoration(
-                                    color: const Color(0xFFF0F0F0),
-                                    borderRadius: BorderRadius.circular(8),
-                                  ),
-                                  child: Text(
-                                    '# $t',
-                                    style: const TextStyle(
-                                      fontSize: 12,
-                                      color: _darkText,
-                                      fontWeight: FontWeight.w600,
-                                    ),
-                                  ),
-                                ))
+                                ),
+                              ),
+                            )
                             .toList(),
                       ),
                     ],
@@ -2266,6 +2476,28 @@ class _PublicSetCard extends ConsumerWidget {
                 padding: const EdgeInsets.fromLTRB(20, 0, 20, 24),
                 child: Column(
                   children: [
+                    if (user != null && user.id != publicSet.userId) ...[
+                      SizedBox(
+                        width: double.infinity,
+                        child: OutlinedButton.icon(
+                          onPressed: () async {
+                            await ref
+                                .read(communityLikedSetIdsProvider.notifier)
+                                .toggle(publicSet.id);
+                            ref.invalidate(publicStudySetsProvider);
+                            if (!context.mounted) return;
+                            Navigator.of(context).pop();
+                          },
+                          icon: Icon(
+                            isLiked
+                                ? Icons.favorite_rounded
+                                : Icons.favorite_border_rounded,
+                          ),
+                          label: Text(isLiked ? '取消讚' : '按讚'),
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                    ],
                     if (_isOwn(ref)) ...[
                       SizedBox(
                         width: double.infinity,
@@ -2279,7 +2511,9 @@ class _PublicSetCard extends ConsumerWidget {
                             shape: RoundedRectangleBorder(
                               borderRadius: BorderRadius.circular(14),
                             ),
-                            side: BorderSide(color: AppTheme.red.withValues(alpha: 0.3)),
+                            side: BorderSide(
+                              color: AppTheme.red.withValues(alpha: 0.3),
+                            ),
                           ),
                         ),
                       ),
@@ -2334,13 +2568,15 @@ class _PublicSetCard extends ConsumerWidget {
               style: const TextStyle(color: _darkText),
             ),
             const SizedBox(height: 12),
-            ...reasons.map((r) => ListTile(
-                  contentPadding: EdgeInsets.zero,
-                  title: Text(r.$1, style: const TextStyle(color: _darkText)),
-                  leading: const Icon(Icons.radio_button_unchecked_rounded),
-                  onTap: () => _submitReport(ctx, ref, l10n, r.$2),
-                  dense: true,
-                )),
+            ...reasons.map(
+              (r) => ListTile(
+                contentPadding: EdgeInsets.zero,
+                title: Text(r.$1, style: const TextStyle(color: _darkText)),
+                leading: const Icon(Icons.radio_button_unchecked_rounded),
+                onTap: () => _submitReport(ctx, ref, l10n, r.$2),
+                dense: true,
+              ),
+            ),
           ],
         ),
         actions: [
@@ -2361,10 +2597,9 @@ class _PublicSetCard extends ConsumerWidget {
   ) async {
     Navigator.of(context).pop(); // Close report dialog
     try {
-      await ref.read(communityServiceProvider).reportPublicSet(
-            publicSetId: publicSet.id,
-            reason: reason,
-          );
+      await ref
+          .read(communityServiceProvider)
+          .reportPublicSet(publicSetId: publicSet.id, reason: reason);
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -2376,10 +2611,7 @@ class _PublicSetCard extends ConsumerWidget {
     } catch (e) {
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('$e'),
-            behavior: SnackBarBehavior.floating,
-          ),
+          SnackBar(content: Text('$e'), behavior: SnackBarBehavior.floating),
         );
       }
     }
@@ -2413,7 +2645,9 @@ class _PublicSetCard extends ConsumerWidget {
     final localSet = service.toLocalStudySet(publicSet);
 
     ref.read(studySetsProvider.notifier).add(localSet);
-    service.incrementDownloadCount(publicSet.id);
+    await service.incrementDownloadCount(publicSet.id);
+    ref.invalidate(communityDownloadedSetIdsProvider);
+    ref.invalidate(publicStudySetsProvider);
 
     if (context.mounted) {
       Navigator.of(context).pop();
@@ -2432,9 +2666,9 @@ class _PublicSetCard extends ConsumerWidget {
     AppLocalizations l10n,
   ) async {
     try {
-      await ref.read(
-        communityServiceProvider,
-      ).unpublishStudySet(publicSet.studySetId);
+      await ref
+          .read(communityServiceProvider)
+          .unpublishStudySet(publicSet.studySetId);
       ref.invalidate(publicStudySetsProvider);
       if (context.mounted) {
         Navigator.of(context).pop();
@@ -2493,10 +2727,7 @@ class _LocalSetCard extends StatelessWidget {
                   color: AppTheme.indigo.withValues(alpha: 0.08),
                   borderRadius: BorderRadius.circular(12),
                 ),
-                child: const Icon(
-                  Icons.folder_rounded,
-                  color: AppTheme.indigo,
-                ),
+                child: const Icon(Icons.folder_rounded, color: AppTheme.indigo),
               ),
               const SizedBox(width: 12),
               Expanded(
@@ -2516,18 +2747,12 @@ class _LocalSetCard extends StatelessWidget {
                     const SizedBox(height: 2),
                     Text(
                       '${set.cards.length} cards',
-                      style: const TextStyle(
-                        fontSize: 13,
-                        color: _subtleText,
-                      ),
+                      style: const TextStyle(fontSize: 13, color: _subtleText),
                     ),
                   ],
                 ),
               ),
-              const Icon(
-                Icons.chevron_right_rounded,
-                color: _subtleText,
-              ),
+              const Icon(Icons.chevron_right_rounded, color: _subtleText),
             ],
           ),
         ),
@@ -2541,13 +2766,8 @@ class _LocalSetCard extends StatelessWidget {
 class _SectionHeader extends StatelessWidget {
   final IconData icon;
   final String title;
-  final String? subtitle;
 
-  const _SectionHeader({
-    required this.icon,
-    required this.title,
-    this.subtitle,
-  });
+  const _SectionHeader({required this.icon, required this.title});
 
   @override
   Widget build(BuildContext context) {
@@ -2577,17 +2797,6 @@ class _SectionHeader extends StatelessWidget {
             ),
           ],
         ),
-        if (subtitle != null) ...[
-          const SizedBox(height: 4),
-          Text(
-            subtitle!,
-            style: const TextStyle(
-              fontSize: 12,
-              color: _subtleText,
-              height: 1.45,
-            ),
-          ),
-        ],
       ],
     );
   }

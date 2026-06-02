@@ -70,4 +70,7 @@ class SupabaseConstants {
   static const String adminComplianceExportsTable = 'admin_compliance_exports';
   static const String publicStudySetsTable = 'public_study_sets';
   static const String communityReportsTable = 'community_reports';
+  static const String communityLikesTable = 'community_likes';
+  static const String communitySavesTable = 'community_saves';
+  static const String communityDownloadsTable = 'community_downloads';
 }

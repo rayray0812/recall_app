@@ -256,6 +256,7 @@ class LocalStorageService {
     await _settingsBox.delete(AppConstants.settingDeletedStudySetIdsKey);
     await _settingsBox.delete(AppConstants.settingDeletedFolderIdsKey);
     await _settingsBox.delete(AppConstants.settingCommunityFriendIdsKey);
+    await _settingsBox.delete(AppConstants.settingCommunitySavedSetIdsKey);
   }
 
   Future<void> restoreAllStudyData({
@@ -349,7 +350,8 @@ class LocalStorageService {
         (_settingsBox.get(
                   AppConstants.settingCommunityFriendIdsKey,
                   defaultValue: <dynamic>[],
-                ) as List)
+                )
+                as List)
             .cast<dynamic>();
     return raw.map((item) => item.toString()).toList();
   }
@@ -372,6 +374,38 @@ class LocalStorageService {
   Future<void> removeCommunityFriendId(String userId) async {
     final ids = getCommunityFriendIds()..removeWhere((id) => id == userId);
     await saveCommunityFriendIds(ids);
+  }
+
+  List<String> getCommunitySavedSetIds() {
+    final raw =
+        (_settingsBox.get(
+                  AppConstants.settingCommunitySavedSetIdsKey,
+                  defaultValue: <dynamic>[],
+                )
+                as List)
+            .cast<dynamic>();
+    return raw.map((item) => item.toString()).toList();
+  }
+
+  Future<void> saveCommunitySavedSetIds(List<String> ids) async {
+    await _settingsBox.put(
+      AppConstants.settingCommunitySavedSetIdsKey,
+      ids.toSet().toList(),
+    );
+  }
+
+  Future<void> addCommunitySavedSetId(String publicSetId) async {
+    final ids = getCommunitySavedSetIds();
+    if (!ids.contains(publicSetId)) {
+      ids.add(publicSetId);
+      await saveCommunitySavedSetIds(ids);
+    }
+  }
+
+  Future<void> removeCommunitySavedSetId(String publicSetId) async {
+    final ids = getCommunitySavedSetIds()
+      ..removeWhere((id) => id == publicSetId);
+    await saveCommunitySavedSetIds(ids);
   }
 
   List<Folder> getAllFolders() {
@@ -495,7 +529,11 @@ class LocalStorageService {
   // -- Conversation Settings --
 
   bool get isConversationMuted =>
-      _settingsBox.get(AppConstants.settingConversationMutedKey, defaultValue: false) as bool;
+      _settingsBox.get(
+            AppConstants.settingConversationMutedKey,
+            defaultValue: false,
+          )
+          as bool;
 
   Future<void> setConversationMuted(bool value) async {
     await _settingsBox.put(AppConstants.settingConversationMutedKey, value);

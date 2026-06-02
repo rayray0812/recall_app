@@ -1,4 +1,4 @@
-﻿class AppConstants {
+class AppConstants {
   static const String appName = '拾憶 Grasp';
   static const String hiveStudySetsBox = 'study_sets';
   static const String hiveCardProgressBox = 'card_progress';
@@ -16,9 +16,10 @@
   static const String settingDeletedFolderIdsKey = 'deleted_folder_ids';
   static const String settingTtsEngineKey = 'tts_engine';
   static const String settingCommunityFriendIdsKey = 'community_friend_ids';
+  static const String settingCommunitySavedSetIdsKey =
+      'community_saved_set_ids';
   static const String settingConversationMutedKey = 'conversation_muted';
-  static const String settingGemmaLocalModelPathKey =
-      'gemma_local_model_path';
+  static const String settingGemmaLocalModelPathKey = 'gemma_local_model_path';
   static const String settingAiEventsKey = 'ai_events';
 
   static const int maxCardsPerSet = 2000;
