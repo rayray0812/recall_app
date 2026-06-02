@@ -58,3 +58,6 @@ folders.lock
 
 # Local backup snapshots
 .git-backups/
+
+# Personal learning-portfolio / journal (not for the public repo)
+portfolio/

@@ -1,3 +1,4 @@
+import 'package:flutter/services.dart';
 import 'package:recall_app/services/on_device_ai_service.dart';
 
 /// Which on-device inference backend an engine uses.
@@ -68,9 +69,58 @@ class AndroidMediaPipeEngine implements LocalLlmEngine {
   Future<void> dispose() => OnDeviceAiService.unloadModel();
 }
 
+/// iOS engine backed by Apple's Foundation Models framework (iOS 26+).
+///
+/// Uses the OS-provided ~3B on-device model — no model download required. The
+/// Dart side talks to a MethodChannel; the native Swift implementation
+/// (`appleFoundationModelsAvailable` / `appleGenerate`) is added in the iOS
+/// Runner. Until that native side ships, [isAvailable] returns false via
+/// [MissingPluginException] and the engine is never selected.
+class AppleFoundationModelsEngine implements LocalLlmEngine {
+  const AppleFoundationModelsEngine();
+
+  static const MethodChannel _channel = MethodChannel('recall_app/on_device_ai');
+
+  @override
+  LocalLlmBackend get backend => LocalLlmBackend.appleFoundationModels;
+
+  @override
+  Future<bool> isAvailable() async {
+    try {
+      final ok = await _channel.invokeMethod<bool>(
+        'appleFoundationModelsAvailable',
+      );
+      return ok ?? false;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  @override
+  Future<String> generate({
+    required String prompt,
+    int maxTokens = 256,
+    double temperature = 0.0,
+    int topK = 1,
+  }) async {
+    try {
+      final out = await _channel.invokeMethod<String>('appleGenerate', {
+        'prompt': prompt,
+        'maxTokens': maxTokens,
+        'temperature': temperature,
+      });
+      return out ?? '';
+    } catch (_) {
+      return '';
+    }
+  }
+
+  @override
+  Future<void> dispose() async {}
+}
+
 /// Always-unavailable engine for platforms without an on-device backend
-/// (web, older iOS) and as the iOS placeholder until the Apple Foundation
-/// Models engine lands in Phase C2.
+/// (web, older iOS without Apple Intelligence).
 class NullLocalLlmEngine implements LocalLlmEngine {
   const NullLocalLlmEngine();
 

@@ -74,6 +74,12 @@ final aiPrivacyModeProvider =
 final localLlmEngineProvider = FutureProvider<LocalLlmEngine>((ref) async {
   final capability = await ref.watch(aiCapabilityProvider.future);
 
+  // iOS: use Apple's OS-provided Foundation Models (no download) when available.
+  if (capability.platform == AiPlatform.ios &&
+      capability.appleFoundationModels) {
+    return const AppleFoundationModelsEngine();
+  }
+
   if (capability.platform == AiPlatform.android) {
     final manager = ref.watch(modelManagerProvider);
     final recommended = ModelCatalog.recommended(capability);
