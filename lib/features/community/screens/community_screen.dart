@@ -1542,7 +1542,9 @@ class _ClassroomTabState extends ConsumerState<_ClassroomTab> {
                       },
                     ),
                     const SizedBox(height: 12),
-                    Row(
+                    Wrap(
+                      crossAxisAlignment: WrapCrossAlignment.center,
+                      runSpacing: 4,
                       children: [
                         Expanded(
                           child: FilledButton.icon(
@@ -2089,6 +2091,34 @@ class _PublicSetCard extends ConsumerWidget {
                             fontSize: 13,
                           ),
                         ),
+                        const SizedBox(width: 8),
+                        const Icon(
+                          Icons.star_rounded,
+                          size: 14,
+                          color: AppTheme.gold,
+                        ),
+                        const SizedBox(width: 2),
+                        Text(
+                          publicSet.averageRating.toStringAsFixed(1),
+                          style: const TextStyle(
+                            color: _subtleText,
+                            fontSize: 13,
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        const Icon(
+                          Icons.chat_bubble_outline_rounded,
+                          size: 14,
+                          color: _subtleText,
+                        ),
+                        const SizedBox(width: 2),
+                        Text(
+                          '${publicSet.commentCount}',
+                          style: const TextStyle(
+                            color: _subtleText,
+                            fontSize: 13,
+                          ),
+                        ),
                       ],
                     ),
                     // Tags inline
@@ -2476,6 +2506,32 @@ class _PublicSetCard extends ConsumerWidget {
                 padding: const EdgeInsets.fromLTRB(20, 0, 20, 24),
                 child: Column(
                   children: [
+                    Row(
+                      children: [
+                        Expanded(
+                          child: OutlinedButton.icon(
+                            onPressed: user == null
+                                ? null
+                                : () => _showRatingDialog(context, ref),
+                            icon: const Icon(Icons.star_outline_rounded),
+                            label: Text(
+                              publicSet.ratingCount == 0
+                                  ? '評分'
+                                  : '${publicSet.averageRating.toStringAsFixed(1)} (${publicSet.ratingCount})',
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: OutlinedButton.icon(
+                            onPressed: () => _showCommentsSheet(context, ref),
+                            icon: const Icon(Icons.chat_bubble_outline_rounded),
+                            label: Text('留言 ${publicSet.commentCount}'),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
                     if (user != null && user.id != publicSet.userId) ...[
                       SizedBox(
                         width: double.infinity,
@@ -2541,6 +2597,187 @@ class _PublicSetCard extends ConsumerWidget {
         ),
       ),
     );
+  }
+
+  Future<void> _showRatingDialog(BuildContext context, WidgetRef ref) async {
+    final currentRating = await ref.read(
+      communityMyRatingProvider(publicSet.id).future,
+    );
+    if (!context.mounted) return;
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('為這個學習集評分'),
+        content: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: List.generate(5, (index) {
+            final rating = index + 1;
+            return IconButton(
+              onPressed: () async {
+                await ref
+                    .read(communityServiceProvider)
+                    .setRating(publicSet.id, rating);
+                ref.invalidate(communityMyRatingProvider(publicSet.id));
+                ref.invalidate(publicStudySetsProvider);
+                if (dialogContext.mounted) Navigator.of(dialogContext).pop();
+              },
+              icon: Icon(
+                rating <= (currentRating ?? 0)
+                    ? Icons.star_rounded
+                    : Icons.star_outline_rounded,
+                color: AppTheme.gold,
+              ),
+            );
+          }),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _showCommentsSheet(BuildContext context, WidgetRef ref) async {
+    final controller = TextEditingController();
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      builder: (sheetContext) => Consumer(
+        builder: (context, ref, _) {
+          final commentsAsync = ref.watch(
+            communityCommentsProvider(publicSet.id),
+          );
+          final currentUser = ref.watch(currentUserProvider);
+          return Padding(
+            padding: EdgeInsets.fromLTRB(
+              20,
+              18,
+              20,
+              MediaQuery.viewInsetsOf(context).bottom + 18,
+            ),
+            child: SizedBox(
+              height: MediaQuery.sizeOf(context).height * 0.65,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    '留言',
+                    style: GoogleFonts.notoSerifTc(
+                      fontSize: 20,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  Expanded(
+                    child: commentsAsync.when(
+                      data: (comments) => comments.isEmpty
+                          ? const Center(child: Text('目前還沒有留言'))
+                          : ListView.builder(
+                              itemCount: comments.length,
+                              itemBuilder: (context, index) {
+                                final comment = comments[index];
+                                final isMine =
+                                    currentUser?.id == comment.userId;
+                                final canHide =
+                                    currentUser?.id == publicSet.userId;
+                                return ListTile(
+                                  contentPadding: EdgeInsets.zero,
+                                  title: Text(comment.authorName),
+                                  subtitle: Text(
+                                    comment.isHidden ? '此留言已隱藏' : comment.body,
+                                  ),
+                                  trailing: isMine
+                                      ? IconButton(
+                                          tooltip: '刪除留言',
+                                          onPressed: () async {
+                                            await ref
+                                                .read(communityServiceProvider)
+                                                .deleteComment(comment.id);
+                                            ref.invalidate(
+                                              communityCommentsProvider(
+                                                publicSet.id,
+                                              ),
+                                            );
+                                            ref.invalidate(
+                                              publicStudySetsProvider,
+                                            );
+                                          },
+                                          icon: const Icon(
+                                            Icons.delete_outline_rounded,
+                                          ),
+                                        )
+                                      : canHide
+                                      ? IconButton(
+                                          tooltip: comment.isHidden
+                                              ? '恢復留言'
+                                              : '隱藏留言',
+                                          onPressed: () async {
+                                            await ref
+                                                .read(communityServiceProvider)
+                                                .hideComment(
+                                                  comment.id,
+                                                  hidden: !comment.isHidden,
+                                                );
+                                            ref.invalidate(
+                                              communityCommentsProvider(
+                                                publicSet.id,
+                                              ),
+                                            );
+                                            ref.invalidate(
+                                              publicStudySetsProvider,
+                                            );
+                                          },
+                                          icon: Icon(
+                                            comment.isHidden
+                                                ? Icons.visibility_outlined
+                                                : Icons.visibility_off_outlined,
+                                          ),
+                                        )
+                                      : null,
+                                );
+                              },
+                            ),
+                      loading: () =>
+                          const Center(child: CircularProgressIndicator()),
+                      error: (error, _) => Center(child: Text('$error')),
+                    ),
+                  ),
+                  if (currentUser != null) ...[
+                    const SizedBox(height: 8),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: TextField(
+                            controller: controller,
+                            maxLength: 1000,
+                            decoration: const InputDecoration(
+                              hintText: '留下留言',
+                              counterText: '',
+                            ),
+                          ),
+                        ),
+                        IconButton(
+                          tooltip: '送出留言',
+                          onPressed: () async {
+                            await ref
+                                .read(communityServiceProvider)
+                                .addComment(publicSet.id, controller.text);
+                            controller.clear();
+                            ref.invalidate(
+                              communityCommentsProvider(publicSet.id),
+                            );
+                            ref.invalidate(publicStudySetsProvider);
+                          },
+                          icon: const Icon(Icons.send_rounded),
+                        ),
+                      ],
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          );
+        },
+      ),
+    );
+    controller.dispose();
   }
 
   void _showReportDialog(

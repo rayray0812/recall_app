@@ -121,6 +121,21 @@ final communityDownloadedSetIdsProvider = FutureProvider<List<String>>((
   return service.fetchMyDownloadedSetIds();
 });
 
+final communityCommentsProvider =
+    FutureProvider.family<List<CommunityComment>, String>((ref, publicSetId) {
+      final service = ref.watch(communityServiceProvider);
+      return service.fetchComments(publicSetId);
+    });
+
+final communityMyRatingProvider = FutureProvider.family<int?, String>((
+  ref,
+  publicSetId,
+) {
+  ref.watch(currentUserProvider);
+  final service = ref.watch(communityServiceProvider);
+  return service.fetchMyRating(publicSetId);
+});
+
 class CommunityFriendIdsNotifier extends StateNotifier<List<String>> {
   CommunityFriendIdsNotifier(this._localStorage)
     : super(_localStorage.getCommunityFriendIds());

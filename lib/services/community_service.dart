@@ -23,6 +23,9 @@ class PublicStudySet {
   final int downloadCount;
   final int likeCount;
   final int saveCount;
+  final double averageRating;
+  final int ratingCount;
+  final int commentCount;
   final DateTime createdAt;
   final DateTime updatedAt;
 
@@ -39,6 +42,9 @@ class PublicStudySet {
     this.downloadCount = 0,
     this.likeCount = 0,
     this.saveCount = 0,
+    this.averageRating = 0,
+    this.ratingCount = 0,
+    this.commentCount = 0,
     required this.createdAt,
     required this.updatedAt,
   });
@@ -72,11 +78,48 @@ class PublicStudySet {
       downloadCount: (json['download_count'] as num?)?.toInt() ?? 0,
       likeCount: (json['like_count'] as num?)?.toInt() ?? 0,
       saveCount: (json['save_count'] as num?)?.toInt() ?? 0,
+      averageRating: (json['average_rating'] as num?)?.toDouble() ?? 0,
+      ratingCount: (json['rating_count'] as num?)?.toInt() ?? 0,
+      commentCount: (json['comment_count'] as num?)?.toInt() ?? 0,
       createdAt:
           DateTime.tryParse(json['created_at'] as String? ?? '') ??
           DateTime.now(),
       updatedAt:
           DateTime.tryParse(json['updated_at'] as String? ?? '') ??
+          DateTime.now(),
+    );
+  }
+}
+
+class CommunityComment {
+  final String id;
+  final String publicSetId;
+  final String userId;
+  final String authorName;
+  final String body;
+  final bool isHidden;
+  final DateTime createdAt;
+
+  const CommunityComment({
+    required this.id,
+    required this.publicSetId,
+    required this.userId,
+    this.authorName = '',
+    required this.body,
+    this.isHidden = false,
+    required this.createdAt,
+  });
+
+  factory CommunityComment.fromJson(Map<String, dynamic> json) {
+    return CommunityComment(
+      id: json['id'] as String? ?? '',
+      publicSetId: json['public_set_id'] as String? ?? '',
+      userId: json['user_id'] as String? ?? '',
+      authorName: json['author_name'] as String? ?? '',
+      body: json['body'] as String? ?? '',
+      isHidden: json['is_hidden'] as bool? ?? false,
+      createdAt:
+          DateTime.tryParse(json['created_at'] as String? ?? '') ??
           DateTime.now(),
     );
   }
@@ -101,6 +144,20 @@ class CommunityService {
   final SupabaseService supabaseService;
 
   CommunityService({required this.supabaseService});
+
+  /// Strips characters that have structural meaning in a PostgREST `.or()`
+  /// filter (`,` `(` `)` `:` `*`) plus the SQL `LIKE` wildcards (`%` `_`) and
+  /// backslash, so a search string can't break out of the ilike pattern or
+  /// inject extra filter conditions. Returns a trimmed, length-capped term.
+  @visibleForTesting
+  static String sanitizeSearchTerm(String? raw) {
+    if (raw == null) return '';
+    final cleaned = raw
+        .replaceAll(RegExp(r'[,()*:%_\\]'), ' ')
+        .replaceAll(RegExp(r'\s+'), ' ')
+        .trim();
+    return cleaned.length > 100 ? cleaned.substring(0, 100) : cleaned;
+  }
 
   SupabaseClient? get _client {
     if (!SupabaseConstants.isConfigured) return null;
@@ -233,8 +290,8 @@ class CommunityService {
       }
 
       // Apply search filter
-      if (query != null && query.trim().isNotEmpty) {
-        final q = query.trim();
+      final q = sanitizeSearchTerm(query);
+      if (q.isNotEmpty) {
         builder = builder.or(
           'title.ilike.%$q%,description.ilike.%$q%,author_name.ilike.%$q%',
         );
@@ -417,6 +474,80 @@ class CommunityService {
       publicSetId,
       enabled: saved,
     );
+  }
+
+  Future<List<CommunityComment>> fetchComments(String publicSetId) async {
+    final client = _client;
+    if (client == null) return [];
+    final rows = await client
+        .from(SupabaseConstants.communityCommentsTable)
+        .select()
+        .eq('public_set_id', publicSetId)
+        .order('created_at');
+    return (rows as List)
+        .map((row) => CommunityComment.fromJson(row as Map<String, dynamic>))
+        .toList();
+  }
+
+  Future<void> addComment(String publicSetId, String body) async {
+    final client = _client;
+    final user = client?.auth.currentUser;
+    final normalized = body.trim();
+    if (client == null || user == null) {
+      throw Exception('Must be logged in to comment');
+    }
+    if (normalized.isEmpty) return;
+    await client.from(SupabaseConstants.communityCommentsTable).insert({
+      'user_id': user.id,
+      'public_set_id': publicSetId,
+      'author_name': user.email?.split('@').first ?? 'Learner',
+      'body': normalized,
+    });
+  }
+
+  Future<void> deleteComment(String commentId) async {
+    final client = _client;
+    if (client == null) return;
+    await client
+        .from(SupabaseConstants.communityCommentsTable)
+        .delete()
+        .eq('id', commentId);
+  }
+
+  Future<void> hideComment(String commentId, {required bool hidden}) async {
+    final client = _client;
+    if (client == null) return;
+    await client
+        .from(SupabaseConstants.communityCommentsTable)
+        .update({'is_hidden': hidden})
+        .eq('id', commentId);
+  }
+
+  Future<int?> fetchMyRating(String publicSetId) async {
+    final client = _client;
+    final user = client?.auth.currentUser;
+    if (client == null || user == null) return null;
+    final row = await client
+        .from(SupabaseConstants.communityRatingsTable)
+        .select('rating')
+        .eq('public_set_id', publicSetId)
+        .eq('user_id', user.id)
+        .maybeSingle();
+    return (row?['rating'] as num?)?.toInt();
+  }
+
+  Future<void> setRating(String publicSetId, int rating) async {
+    final client = _client;
+    final user = client?.auth.currentUser;
+    if (client == null || user == null) {
+      throw Exception('Must be logged in to rate');
+    }
+    if (rating < 1 || rating > 5) throw ArgumentError.value(rating, 'rating');
+    await client.from(SupabaseConstants.communityRatingsTable).upsert({
+      'user_id': user.id,
+      'public_set_id': publicSetId,
+      'rating': rating,
+    });
   }
 
   Future<void> _setInteraction(

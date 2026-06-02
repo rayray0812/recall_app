@@ -73,4 +73,6 @@ class SupabaseConstants {
   static const String communityLikesTable = 'community_likes';
   static const String communitySavesTable = 'community_saves';
   static const String communityDownloadsTable = 'community_downloads';
+  static const String communityCommentsTable = 'community_comments';
+  static const String communityRatingsTable = 'community_ratings';
 }

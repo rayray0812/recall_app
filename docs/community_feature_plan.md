@@ -22,12 +22,12 @@
 - [x] 新增 `community_downloads`：記錄每位使用者下載過哪些公開集，避免只靠內容比對。
 - [x] 更新熱門排序：依 `like_count`、`save_count`、`download_count` 與建立時間排序。
 
-### Phase 2：留言與評分
+### Phase 2：留言與評分 ✅
 
-- 新增 `community_comments`：留言、刪除自己的留言、作者可隱藏留言。
-- 新增 `community_ratings`：1-5 星評分，每人每套一筆。
-- 公開學習集卡片顯示平均評分、留言數。
-- 詳情頁加入留言串與評分入口。
+- [x] 新增 `community_comments`：留言、刪除自己的留言、作者可隱藏留言。
+- [x] 新增 `community_ratings`：1-5 星評分，每人每套一筆。
+- [x] 公開學習集卡片顯示平均評分、留言數。
+- [x] 詳情頁加入留言串與評分入口。
 
 ### Phase 3：真實好友系統
 
