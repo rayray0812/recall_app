@@ -21,6 +21,7 @@ class AppConstants {
   static const String settingConversationMutedKey = 'conversation_muted';
   static const String settingGemmaLocalModelPathKey = 'gemma_local_model_path';
   static const String settingAiEventsKey = 'ai_events';
+  static const String settingAiPrivacyModeKey = 'ai_privacy_mode';
 
   static const int maxCardsPerSet = 2000;
   static const int defaultNewCardsPerDay = 20;

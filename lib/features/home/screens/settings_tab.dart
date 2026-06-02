@@ -13,6 +13,7 @@ import 'package:recall_app/providers/auth_provider.dart';
 import 'package:recall_app/providers/admin_provider.dart';
 import 'package:recall_app/providers/biometric_provider.dart';
 import 'package:recall_app/providers/ai_provider_provider.dart';
+import 'package:recall_app/providers/ai_runtime_provider.dart';
 import 'package:recall_app/providers/gemini_key_provider.dart';
 import 'package:recall_app/providers/locale_provider.dart';
 import 'package:recall_app/providers/notification_provider.dart';
@@ -507,6 +508,46 @@ class _SettingsTabState extends ConsumerState<SettingsTab> {
                           ),
                         ),
                       ),
+                    const SizedBox(height: 16),
+                    // -- Privacy mode (force on-device, never use cloud) --
+                    Row(
+                      children: [
+                        const Icon(Icons.shield_outlined, size: 18),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'Privacy mode',
+                                style: Theme.of(context)
+                                    .textTheme
+                                    .labelLarge
+                                    ?.copyWith(fontWeight: FontWeight.w700),
+                              ),
+                              Text(
+                                'Use on-device AI only — never send to the cloud.',
+                                style: Theme.of(context).textTheme.bodySmall
+                                    ?.copyWith(
+                                      color: Theme.of(
+                                        context,
+                                      ).colorScheme.onSurfaceVariant,
+                                    ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        Switch(
+                          value: ref.read(aiPrivacyModeProvider),
+                          onChanged: (v) async {
+                            await ref
+                                .read(aiPrivacyModeProvider.notifier)
+                                .setEnabled(v);
+                            setDialogState(() {});
+                          },
+                        ),
+                      ],
+                    ),
                     const SizedBox(height: 16),
                     // -- Gemma: local model management --
                     if (selectedProvider == AiProvider.gemma)
