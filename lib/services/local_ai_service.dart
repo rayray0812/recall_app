@@ -1,12 +1,14 @@
 import 'package:flutter/foundation.dart';
+import 'package:recall_app/services/ai/local_llm_engine.dart';
 import 'package:recall_app/services/ai_analytics_service.dart';
 import 'package:recall_app/services/ai_error.dart';
 import 'package:recall_app/services/ai_task.dart';
-import 'package:recall_app/services/on_device_ai_service.dart';
 
 /// Local-AI assistant service for low-latency, single-sentence tasks.
 ///
-/// Backed by Gemma (2B/3B) running on-device via [OnDeviceAiService].
+/// Backed by a [LocalLlmEngine] (Android MediaPipe today, Apple Foundation
+/// Models on iOS in Phase C2), so it is agnostic to which on-device backend
+/// runs the inference.
 /// Used for high-frequency UX moments where cloud latency is unacceptable:
 /// - L1: review hints during SRS flip
 /// - L2: mnemonic generation
@@ -27,20 +29,19 @@ class LocalAiService {
   ///
   /// Latency target: < 500ms on Gemma 2B (single short sentence).
   static Future<String?> generateReviewHint({
-    required String modelPath,
+    required LocalLlmEngine engine,
     required String term,
     required String definition,
   }) async {
     return _runWithAnalytics(
       taskType: AiTaskType.reviewHint,
-      modelPath: modelPath,
+      engine: engine,
       operation: () async {
         final prompt = buildReviewHintPrompt(
           term: term,
           definition: definition,
         );
-        final raw = await OnDeviceAiService.runInference(
-          modelPath: modelPath,
+        final raw = await engine.generate(
           prompt: prompt,
           maxTokens: _hintMaxTokens,
           temperature: 0.3,
@@ -56,20 +57,19 @@ class LocalAiService {
   /// Mnemonic styles include: 諧音 (homophone), 拆字 (decomposition),
   /// 聯想 (association), 短故事 (mini-story).
   static Future<String?> generateMnemonic({
-    required String modelPath,
+    required LocalLlmEngine engine,
     required String term,
     required String definition,
   }) async {
     return _runWithAnalytics(
       taskType: AiTaskType.mnemonic,
-      modelPath: modelPath,
+      engine: engine,
       operation: () async {
         final prompt = buildMnemonicPrompt(
           term: term,
           definition: definition,
         );
-        final raw = await OnDeviceAiService.runInference(
-          modelPath: modelPath,
+        final raw = await engine.generate(
           prompt: prompt,
           maxTokens: _mnemonicMaxTokens,
           temperature: 0.6,
@@ -83,7 +83,7 @@ class LocalAiService {
   /// L3: Explain why [chosenTerm] and [targetTerm] are commonly confused, and
   /// suggest a memory hook to keep them apart.
   static Future<String?> generateConfusionExplanation({
-    required String modelPath,
+    required LocalLlmEngine engine,
     required String targetTerm,
     required String targetDefinition,
     required String chosenTerm,
@@ -91,7 +91,7 @@ class LocalAiService {
   }) async {
     return _runWithAnalytics(
       taskType: AiTaskType.confusionDiagnosis,
-      modelPath: modelPath,
+      engine: engine,
       operation: () async {
         final prompt = buildConfusionPrompt(
           targetTerm: targetTerm,
@@ -99,8 +99,7 @@ class LocalAiService {
           chosenTerm: chosenTerm,
           chosenDefinition: chosenDefinition,
         );
-        final raw = await OnDeviceAiService.runInference(
-          modelPath: modelPath,
+        final raw = await engine.generate(
           prompt: prompt,
           maxTokens: _confusionMaxTokens,
           temperature: 0.3,
@@ -212,13 +211,12 @@ class LocalAiService {
 
   static Future<String?> _runWithAnalytics({
     required AiTaskType taskType,
-    required String modelPath,
+    required LocalLlmEngine engine,
     required Future<String> Function() operation,
   }) async {
-    if (modelPath.isEmpty) return null;
     final task = AiTask(
       type: taskType,
-      provider: 'gemma',
+      provider: engine.backend.name,
       startedAt: DateTime.now().toUtc(),
     );
     final analytics = AiAnalyticsService();

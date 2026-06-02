@@ -30,8 +30,9 @@ class _ReviewHintButtonState extends ConsumerState<ReviewHintButton> {
 
   @override
   Widget build(BuildContext context) {
-    final hasModel = ref.watch(hasLocalAiModelProvider);
-    if (!hasModel) return const SizedBox.shrink();
+    final canHint =
+        ref.watch(localHintAvailableProvider).valueOrNull ?? false;
+    if (!canHint) return const SizedBox.shrink();
 
     final l10n = AppLocalizations.of(context);
 

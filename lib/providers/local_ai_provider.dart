@@ -1,14 +1,18 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:recall_app/providers/ai_provider_provider.dart';
+import 'package:recall_app/providers/ai_runtime_provider.dart';
+import 'package:recall_app/services/ai_task.dart';
 import 'package:recall_app/services/local_ai_service.dart';
 
-/// Whether the local Gemma model is configured (path set).
+/// Whether the L1 review-hint affordance can run right now.
 ///
-/// UI uses this to gate visibility of L1/L2/L3 affordances — if no model is
-/// available, the buttons are simply hidden rather than showing errors.
-final hasLocalAiModelProvider = Provider<bool>((ref) {
-  final path = ref.watch(gemmaLocalModelPathProvider);
-  return path.trim().isNotEmpty;
+/// True only when [AiRouter] routes the review-hint task to a local engine
+/// (model installed / Apple FM available and privacy/availability allow it).
+/// AsyncValue because device capability + model readiness resolve
+/// asynchronously; UI hides the affordance until it resolves to true.
+final localHintAvailableProvider = Provider.autoDispose<AsyncValue<bool>>((ref) {
+  return ref
+      .watch(aiRouteProvider(AiTaskType.reviewHint))
+      .whenData((decision) => decision.isLocal);
 });
 
 /// Argument for [reviewHintProvider].
@@ -42,10 +46,13 @@ class ReviewHintRequest {
 /// caches within the same session.
 final reviewHintProvider =
     FutureProvider.autoDispose.family<String?, ReviewHintRequest>((ref, req) async {
-      final modelPath = ref.read(gemmaLocalModelPathProvider);
-      if (modelPath.trim().isEmpty) return null;
+      final decision = await ref.watch(
+        aiRouteProvider(AiTaskType.reviewHint).future,
+      );
+      if (!decision.isLocal) return null;
+      final engine = await ref.watch(localLlmEngineProvider.future);
       return LocalAiService.generateReviewHint(
-        modelPath: modelPath,
+        engine: engine,
         term: req.term,
         definition: req.definition,
       );
@@ -54,10 +61,13 @@ final reviewHintProvider =
 /// L2: lazy provider that produces a memory mnemonic.
 final mnemonicProvider =
     FutureProvider.autoDispose.family<String?, ReviewHintRequest>((ref, req) async {
-      final modelPath = ref.read(gemmaLocalModelPathProvider);
-      if (modelPath.trim().isEmpty) return null;
+      final decision = await ref.watch(
+        aiRouteProvider(AiTaskType.mnemonic).future,
+      );
+      if (!decision.isLocal) return null;
+      final engine = await ref.watch(localLlmEngineProvider.future);
       return LocalAiService.generateMnemonic(
-        modelPath: modelPath,
+        engine: engine,
         term: req.term,
         definition: req.definition,
       );
@@ -91,10 +101,13 @@ class ConfusionRequest {
 /// L3: lazy provider that explains a quiz confusion.
 final confusionExplanationProvider =
     FutureProvider.autoDispose.family<String?, ConfusionRequest>((ref, req) async {
-      final modelPath = ref.read(gemmaLocalModelPathProvider);
-      if (modelPath.trim().isEmpty) return null;
+      final decision = await ref.watch(
+        aiRouteProvider(AiTaskType.confusionDiagnosis).future,
+      );
+      if (!decision.isLocal) return null;
+      final engine = await ref.watch(localLlmEngineProvider.future);
       return LocalAiService.generateConfusionExplanation(
-        modelPath: modelPath,
+        engine: engine,
         targetTerm: req.targetTerm,
         targetDefinition: req.targetDefinition,
         chosenTerm: req.chosenTerm,
