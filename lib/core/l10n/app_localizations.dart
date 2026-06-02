@@ -1,4 +1,4 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 
 class AppLocalizations {
   final Locale locale;
@@ -206,7 +206,18 @@ class AppLocalizations {
   String get communityReportSpam => '';
   String get communityReportCopyright => '';
   String get communityReportOther => '';
-
+  String get communityRate => '';
+  String get communityRateTitle => '';
+  String communityComments(int count) => '';
+  String get communityCommentsTitle => '';
+  String get communityNoComments => '';
+  String get communityHiddenComment => '';
+  String get communityDeleteComment => '';
+  String get communityRestoreComment => '';
+  String get communityHideComment => '';
+  String get communityCommentHint => '';
+  String get communitySendComment => '';
+  String communityActionFailed(String error) => '';
 
   // -- Language --
   String get language => '';
@@ -778,7 +789,8 @@ class AppLocalizationsZh extends AppLocalizations {
   @override
   String get appDisplayName => '\u62FE\u61B6';
   @override
-  String get loginSubtitle => '\u958B\u59CB\u4ECA\u5929\u7684\u5B78\u7FD2\u3002';
+  String get loginSubtitle =>
+      '\u958B\u59CB\u4ECA\u5929\u7684\u5B78\u7FD2\u3002';
 
   // -- Home --
   @override
@@ -977,7 +989,8 @@ class AppLocalizationsZh extends AppLocalizations {
   @override
   String get matchingAttempts => '\u5617\u8A66\u6B21\u6578';
   @override
-  String get matchingRoundComplete => '\u4F60\u5B8C\u6210\u4E86\u4E00\u8F2A\u914D\u5C0D\u7DF4\u7FD2';
+  String get matchingRoundComplete =>
+      '\u4F60\u5B8C\u6210\u4E86\u4E00\u8F2A\u914D\u5C0D\u7DF4\u7FD2';
 
   // -- Result Screen --
   @override
@@ -1030,7 +1043,8 @@ class AppLocalizationsZh extends AppLocalizations {
   @override
   String get unsavedChanges => '\u672A\u5132\u5B58\u7684\u8B8A\u66F4';
   @override
-  String get unsavedChangesMessage => '\u4F60\u6709\u672A\u5132\u5B58\u7684\u8B8A\u66F4\uFF0C\u8981\u5132\u5B58\u9084\u662F\u6368\u68C4\uFF1F';
+  String get unsavedChangesMessage =>
+      '\u4F60\u6709\u672A\u5132\u5B58\u7684\u8B8A\u66F4\uFF0C\u8981\u5132\u5B58\u9084\u662F\u6368\u68C4\uFF1F';
   @override
   String get setTitle => '\u5B78\u7FD2\u96C6\u6A19\u984C';
   @override
@@ -1129,7 +1143,30 @@ class AppLocalizationsZh extends AppLocalizations {
   String get communityReportCopyright => '侵犯著作權';
   @override
   String get communityReportOther => '其他';
-
+  @override
+  String get communityRate => '評分';
+  @override
+  String get communityRateTitle => '為這個學習集評分';
+  @override
+  String communityComments(int count) => '留言 $count';
+  @override
+  String get communityCommentsTitle => '留言';
+  @override
+  String get communityNoComments => '目前還沒有留言';
+  @override
+  String get communityHiddenComment => '此留言已隱藏';
+  @override
+  String get communityDeleteComment => '刪除留言';
+  @override
+  String get communityRestoreComment => '恢復留言';
+  @override
+  String get communityHideComment => '隱藏留言';
+  @override
+  String get communityCommentHint => '留下留言';
+  @override
+  String get communitySendComment => '送出留言';
+  @override
+  String communityActionFailed(String error) => '操作失敗：$error';
 
   // -- Language --
   @override
@@ -1342,7 +1379,8 @@ class AppLocalizationsZh extends AppLocalizations {
   @override
   String get groqApiKeyHint => '\u8F38\u5165\u4F60\u7684 Groq API Key';
   @override
-  String get groqFreeLabel => '\u2705 \u514D\u8CBB\uFF0C\u4E0D\u9700\u4FE1\u7528\u5361';
+  String get groqFreeLabel =>
+      '\u2705 \u514D\u8CBB\uFF0C\u4E0D\u9700\u4FE1\u7528\u5361';
   @override
   String get aiProvider => 'AI \u63D0\u4F9B\u8005';
   @override
@@ -1350,21 +1388,25 @@ class AppLocalizationsZh extends AppLocalizations {
   @override
   String get localHintGenerating => '\u672C\u5730 AI \u601D\u8003\u4E2D\u2026';
   @override
-  String get localHintUnavailable => '\u672C\u6B21\u63D0\u793A\u751F\u6210\u5931\u6557\uFF0C\u8ACB\u91CD\u8A66';
+  String get localHintUnavailable =>
+      '\u672C\u6B21\u63D0\u793A\u751F\u6210\u5931\u6557\uFF0C\u8ACB\u91CD\u8A66';
   @override
   String get ttsEngine => '\u8A9E\u97F3\u5F15\u64CE';
   @override
   String get ttsCloudTts => 'Cloud TTS';
   @override
-  String get ttsCloudTtsDesc => 'Google \u96F2\u7AEF\u8A9E\u97F3\uFF08\u63A8\u85A6\uFF0C\u514D\u8CBB 100 \u842C\u5B57/\u6708\uFF09';
+  String get ttsCloudTtsDesc =>
+      'Google \u96F2\u7AEF\u8A9E\u97F3\uFF08\u63A8\u85A6\uFF0C\u514D\u8CBB 100 \u842C\u5B57/\u6708\uFF09';
   @override
   String get ttsGeminiTts => 'Gemini TTS';
   @override
-  String get ttsGeminiTtsDesc => 'AI \u751F\u6210\u8A9E\u97F3\uFF08\u6700\u81EA\u7136\uFF0C\u4F46\u8017 token\uFF09';
+  String get ttsGeminiTtsDesc =>
+      'AI \u751F\u6210\u8A9E\u97F3\uFF08\u6700\u81EA\u7136\uFF0C\u4F46\u8017 token\uFF09';
   @override
   String get ttsDeviceTts => '\u8A2D\u5099\u767C\u97F3';
   @override
-  String get ttsDeviceTtsDesc => '\u624B\u6A5F\u5167\u5EFA\u8A9E\u97F3\uFF08\u514D\u8CBB\uFF0C\u4F46\u8F03\u6A5F\u68B0\uFF09';
+  String get ttsDeviceTtsDesc =>
+      '\u624B\u6A5F\u5167\u5EFA\u8A9E\u97F3\uFF08\u514D\u8CBB\uFF0C\u4F46\u8F03\u6A5F\u68B0\uFF09';
   @override
   String get analyzing => 'AI \u5206\u6790\u4E2D\u2026';
   @override
@@ -1552,7 +1594,8 @@ class AppLocalizationsZh extends AppLocalizations {
   @override
   String get noFoldersYet => '\u9084\u6C92\u6709\u8CC7\u6599\u593E';
   @override
-  String get folderEmpty => '\u9019\u500B\u8CC7\u6599\u593E\u9084\u6C92\u6709\u5B78\u7FD2\u96C6';
+  String get folderEmpty =>
+      '\u9019\u500B\u8CC7\u6599\u593E\u9084\u6C92\u6709\u5B78\u7FD2\u96C6';
   @override
   String get showAll => '\u986F\u793A\u5168\u90E8';
   @override
@@ -1575,7 +1618,8 @@ class AppLocalizationsZh extends AppLocalizations {
   @override
   String get noFolder => '\u7121\u8CC7\u6599\u593E';
   @override
-  String get shareFolderToCommunity => '\u5206\u4EAB\u8CC7\u6599\u593E\u5167\u6240\u6709\u5B78\u7FD2\u96C6';
+  String get shareFolderToCommunity =>
+      '\u5206\u4EAB\u8CC7\u6599\u593E\u5167\u6240\u6709\u5B78\u7FD2\u96C6';
   @override
   String get communityUnpublished => '\u5DF2\u4E0B\u67B6';
   @override
@@ -1591,7 +1635,8 @@ class AppLocalizationsZh extends AppLocalizations {
   @override
   String selectedCount(int count) => '\u5DF2\u9078 $count \u500B';
   @override
-  String get batchMoveToFolder => '\u6279\u6B21\u79FB\u52D5\u5230\u8CC7\u6599\u593E';
+  String get batchMoveToFolder =>
+      '\u6279\u6B21\u79FB\u52D5\u5230\u8CC7\u6599\u593E';
 
   // -- Sorting (F8) --
   @override
@@ -1660,13 +1705,15 @@ class AppLocalizationsZh extends AppLocalizations {
   @override
   String get copyLink => '\u8907\u88FD\u9023\u7D50';
   @override
-  String get copyLinkDesc => '\u8907\u88FD\u6DF1\u5C64\u9023\u7D50\u5230\u526A\u8CBC\u7C3F';
+  String get copyLinkDesc =>
+      '\u8907\u88FD\u6DF1\u5C64\u9023\u7D50\u5230\u526A\u8CBC\u7C3F';
   @override
   String get share => '\u5206\u4EAB';
   @override
   String get shareToFriend => '\u50B3\u9001\u7D66\u670B\u53CB';
   @override
-  String get shareToFriendDesc => '\u900F\u904E LINE\u3001AirDrop \u7B49\u50B3\u9001\u6A94\u6848';
+  String get shareToFriendDesc =>
+      '\u900F\u904E LINE\u3001AirDrop \u7B49\u50B3\u9001\u6A94\u6848';
   @override
   String get pointCameraAtQr => '\u5C07\u93E1\u982D\u5C0D\u6E96 QR Code';
   @override
@@ -1675,7 +1722,8 @@ class AppLocalizationsZh extends AppLocalizations {
   String get qrTooLarge =>
       '\u5361\u7247\u6578\u91CF\u904E\u591A\uFF0C\u7121\u6CD5\u7522\u751F QR Code\u3002\u8ACB\u4F7F\u7528\u300C\u8907\u88FD\u9023\u7D50\u300D\u6216\u300C\u5206\u4EAB\u300D\u529F\u80FD';
   @override
-  String get shareError => '\u5206\u4EAB\u5931\u6557\uFF0C\u8ACB\u7A0D\u5F8C\u518D\u8A66';
+  String get shareError =>
+      '\u5206\u4EAB\u5931\u6557\uFF0C\u8ACB\u7A0D\u5F8C\u518D\u8A66';
 
   // -- Achievements (F11) --
   @override
@@ -2135,19 +2183,23 @@ class AppLocalizationsZh extends AppLocalizations {
   @override
   String get nextObjectiveLabel => '\u4E0B\u4E00\u76EE\u6A19\uFF1A';
   @override
-  String nTermsUsed(int count) => '\u5DF2\u4F7F\u7528 $count \u500B\u55AE\u5B57';
+  String nTermsUsed(int count) =>
+      '\u5DF2\u4F7F\u7528 $count \u500B\u55AE\u5B57';
   @override
   String get weakAreas => '\u5F85\u52A0\u5F37\u9805\u76EE';
   @override
   String get nextSteps => '\u5EFA\u8B70\u4E0B\u4E00\u6B65';
   @override
-  String get recommendPracticeAgain => '\u518D\u7DF4\u7FD2\u4E00\u6B21\u540C\u96E3\u5EA6';
+  String get recommendPracticeAgain =>
+      '\u518D\u7DF4\u7FD2\u4E00\u6B21\u540C\u96E3\u5EA6';
   @override
   String get recommendLowerDifficulty => '\u5617\u8A66\u964D\u4F4E\u96E3\u5EA6';
   @override
-  String get recommendHigherDifficulty => '\u6311\u6230\u66F4\u9AD8\u96E3\u5EA6';
+  String get recommendHigherDifficulty =>
+      '\u6311\u6230\u66F4\u9AD8\u96E3\u5EA6';
   @override
-  String get unusedTargetTerms => '\u672A\u4F7F\u7528\u7684\u76EE\u6A19\u55AE\u5B57';
+  String get unusedTargetTerms =>
+      '\u672A\u4F7F\u7528\u7684\u76EE\u6A19\u55AE\u5B57';
   @override
   String get lowestDimension => '\u6700\u5F31\u9805\u76EE';
   @override
@@ -2205,13 +2257,15 @@ class AppLocalizationsZh extends AppLocalizations {
   @override
   String get bio => '\u500B\u4EBA\u7C21\u4ECB';
   @override
-  String get bioHint => '\u5BEB\u4E00\u6BB5\u7C21\u77ED\u7684\u81EA\u6211\u4ECB\u7D39';
+  String get bioHint =>
+      '\u5BEB\u4E00\u6BB5\u7C21\u77ED\u7684\u81EA\u6211\u4ECB\u7D39';
   @override
   String get changeAvatar => '\u8B8A\u66F4\u982D\u50CF';
   @override
   String get profileSaved => '\u500B\u4EBA\u6A94\u6848\u5DF2\u5132\u5B58';
   @override
-  String get profileSyncNote => '\u8A2A\u5BA2\u6A21\u5F0F\u4E0B\u7684\u500B\u4EBA\u6A94\u6848\u50C5\u5132\u5B58\u5728\u672C\u6A5F\uFF0C\u767B\u5165\u5F8C\u53EF\u540C\u6B65\u81F3\u96F2\u7AEF';
+  String get profileSyncNote =>
+      '\u8A2A\u5BA2\u6A21\u5F0F\u4E0B\u7684\u500B\u4EBA\u6A94\u6848\u50C5\u5132\u5B58\u5728\u672C\u6A5F\uFF0C\u767B\u5165\u5F8C\u53EF\u540C\u6B65\u81F3\u96F2\u7AEF';
 
   // -- Security Settings --
   @override
@@ -2267,7 +2321,8 @@ class AppLocalizationsZh extends AppLocalizations {
   @override
   String get accountDeleted => '帳號已成功刪除';
   @override
-  String get accountDataDeletedFallback => '已清除您的雲端與本地學習資料並登出。完整刪除帳號需要後端進一步處理，請聯絡客服協助。';
+  String get accountDataDeletedFallback =>
+      '已清除您的雲端與本地學習資料並登出。完整刪除帳號需要後端進一步處理，請聯絡客服協助。';
   @override
   String get biometricEnabled => '已啟用生物辨識快速解鎖';
   @override
@@ -2524,7 +2579,8 @@ class AppLocalizationsEn extends AppLocalizations {
   @override
   String get unsavedChanges => 'Unsaved Changes';
   @override
-  String get unsavedChangesMessage => 'You have unsaved changes. Save or discard?';
+  String get unsavedChangesMessage =>
+      'You have unsaved changes. Save or discard?';
   @override
   String get setTitle => 'Set Title';
   @override
@@ -2540,7 +2596,8 @@ class AppLocalizationsEn extends AppLocalizations {
   @override
   String get communityTitle => 'Explore Community';
   @override
-  String get communitySubtitle => 'Browse and download study sets shared by others';
+  String get communitySubtitle =>
+      'Browse and download study sets shared by others';
   @override
   String get communityExplore => 'Explore';
   @override
@@ -2570,13 +2627,15 @@ class AppLocalizationsEn extends AppLocalizations {
   @override
   String get communityClassroomTitle => 'Classroom System';
   @override
-  String get communityClassroomHint => 'Create classes, join classes, track learning progress';
+  String get communityClassroomHint =>
+      'Create classes, join classes, track learning progress';
   @override
   String get communityGoToClassroom => 'Go to Classroom';
   @override
   String get communitySharePromptTitle => 'Share your study sets';
   @override
-  String get communitySharePromptBody => 'Tap "Publish to Community" in study mode to share';
+  String get communitySharePromptBody =>
+      'Tap "Publish to Community" in study mode to share';
   @override
   String get communityPublish => 'Publish to Community';
   @override
@@ -2622,7 +2681,30 @@ class AppLocalizationsEn extends AppLocalizations {
   String get communityReportCopyright => 'Copyright violation';
   @override
   String get communityReportOther => 'Other';
-
+  @override
+  String get communityRate => 'Rate';
+  @override
+  String get communityRateTitle => 'Rate this study set';
+  @override
+  String communityComments(int count) => 'Comments $count';
+  @override
+  String get communityCommentsTitle => 'Comments';
+  @override
+  String get communityNoComments => 'No comments yet';
+  @override
+  String get communityHiddenComment => 'This comment is hidden';
+  @override
+  String get communityDeleteComment => 'Delete comment';
+  @override
+  String get communityRestoreComment => 'Restore comment';
+  @override
+  String get communityHideComment => 'Hide comment';
+  @override
+  String get communityCommentHint => 'Leave a comment';
+  @override
+  String get communitySendComment => 'Send comment';
+  @override
+  String communityActionFailed(String error) => 'Action failed: $error';
 
   // -- Language --
   @override
@@ -2839,11 +2921,13 @@ class AppLocalizationsEn extends AppLocalizations {
   @override
   String get ttsCloudTts => 'Cloud TTS';
   @override
-  String get ttsCloudTtsDesc => 'Google Cloud voice (recommended, free 1M chars/mo)';
+  String get ttsCloudTtsDesc =>
+      'Google Cloud voice (recommended, free 1M chars/mo)';
   @override
   String get ttsGeminiTts => 'Gemini TTS';
   @override
-  String get ttsGeminiTtsDesc => 'AI-generated voice (most natural, costs tokens)';
+  String get ttsGeminiTtsDesc =>
+      'AI-generated voice (most natural, costs tokens)';
   @override
   String get ttsDeviceTts => 'Device Voice';
   @override
@@ -3585,7 +3669,8 @@ class AppLocalizationsEn extends AppLocalizations {
   @override
   String get recommendLowerDifficulty => 'Try a lower difficulty level';
   @override
-  String get recommendHigherDifficulty => 'Challenge yourself with a higher difficulty';
+  String get recommendHigherDifficulty =>
+      'Challenge yourself with a higher difficulty';
   @override
   String get unusedTargetTerms => 'Unused target terms';
   @override
@@ -3651,7 +3736,8 @@ class AppLocalizationsEn extends AppLocalizations {
   @override
   String get profileSaved => 'Profile saved';
   @override
-  String get profileSyncNote => 'Guest profile is saved locally only. Log in to sync to the cloud.';
+  String get profileSyncNote =>
+      'Guest profile is saved locally only. Log in to sync to the cloud.';
 
   // -- Security Settings --
   @override
@@ -3669,13 +3755,15 @@ class AppLocalizationsEn extends AppLocalizations {
   @override
   String get encryptedBackupSubtitle => 'Export/import encrypted data';
   @override
-  String get encryptedBackupDesc => 'Encrypt your study data with a passphrase to securely back up or transfer to another device.';
+  String get encryptedBackupDesc =>
+      'Encrypt your study data with a passphrase to securely back up or transfer to another device.';
   @override
   String get deleteAccountTitle => 'Delete Account';
   @override
   String get deleteAccountSubtitle => 'Permanently delete all data';
   @override
-  String get deleteAccountWarning => 'This action cannot be undone. All data will be permanently deleted.';
+  String get deleteAccountWarning =>
+      'This action cannot be undone. All data will be permanently deleted.';
   @override
   String get signOutDevice => 'Sign Out This Device';
   @override
@@ -3707,7 +3795,8 @@ class AppLocalizationsEn extends AppLocalizations {
   @override
   String get accountDeleted => 'Account deleted successfully';
   @override
-  String get accountDataDeletedFallback => 'Cloud and local study data have been cleared and you have been signed out. Full account removal requires further server-side processing—please contact support.';
+  String get accountDataDeletedFallback =>
+      'Cloud and local study data have been cleared and you have been signed out. Full account removal requires further server-side processing—please contact support.';
   @override
   String get biometricEnabled => 'Biometric quick unlock enabled';
   @override

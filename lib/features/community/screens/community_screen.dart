@@ -2516,7 +2516,7 @@ class _PublicSetCard extends ConsumerWidget {
                             icon: const Icon(Icons.star_outline_rounded),
                             label: Text(
                               publicSet.ratingCount == 0
-                                  ? '評分'
+                                  ? l10n.communityRate
                                   : '${publicSet.averageRating.toStringAsFixed(1)} (${publicSet.ratingCount})',
                             ),
                           ),
@@ -2526,7 +2526,9 @@ class _PublicSetCard extends ConsumerWidget {
                           child: OutlinedButton.icon(
                             onPressed: () => _showCommentsSheet(context, ref),
                             icon: const Icon(Icons.chat_bubble_outline_rounded),
-                            label: Text('留言 ${publicSet.commentCount}'),
+                            label: Text(
+                              l10n.communityComments(publicSet.commentCount),
+                            ),
                           ),
                         ),
                       ],
@@ -2600,26 +2602,39 @@ class _PublicSetCard extends ConsumerWidget {
   }
 
   Future<void> _showRatingDialog(BuildContext context, WidgetRef ref) async {
-    final currentRating = await ref.read(
-      communityMyRatingProvider(publicSet.id).future,
-    );
+    final l10n = AppLocalizations.of(context);
+    int? currentRating;
+    try {
+      currentRating = await ref.read(
+        communityMyRatingProvider(publicSet.id).future,
+      );
+    } catch (error) {
+      if (context.mounted) _showActionError(context, error);
+      return;
+    }
     if (!context.mounted) return;
     await showDialog<void>(
       context: context,
       builder: (dialogContext) => AlertDialog(
-        title: const Text('為這個學習集評分'),
+        title: Text(l10n.communityRateTitle),
         content: Row(
           mainAxisAlignment: MainAxisAlignment.center,
           children: List.generate(5, (index) {
             final rating = index + 1;
             return IconButton(
               onPressed: () async {
-                await ref
-                    .read(communityServiceProvider)
-                    .setRating(publicSet.id, rating);
-                ref.invalidate(communityMyRatingProvider(publicSet.id));
-                ref.invalidate(publicStudySetsProvider);
-                if (dialogContext.mounted) Navigator.of(dialogContext).pop();
+                try {
+                  await ref
+                      .read(communityServiceProvider)
+                      .setRating(publicSet.id, rating);
+                  ref.invalidate(communityMyRatingProvider(publicSet.id));
+                  ref.invalidate(publicStudySetsProvider);
+                  if (dialogContext.mounted) Navigator.of(dialogContext).pop();
+                } catch (error) {
+                  if (dialogContext.mounted) {
+                    _showActionError(dialogContext, error);
+                  }
+                }
               },
               icon: Icon(
                 rating <= (currentRating ?? 0)
@@ -2635,6 +2650,7 @@ class _PublicSetCard extends ConsumerWidget {
   }
 
   Future<void> _showCommentsSheet(BuildContext context, WidgetRef ref) async {
+    final l10n = AppLocalizations.of(context);
     final controller = TextEditingController();
     await showModalBottomSheet<void>(
       context: context,
@@ -2658,7 +2674,7 @@ class _PublicSetCard extends ConsumerWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    '留言',
+                    l10n.communityCommentsTitle,
                     style: GoogleFonts.notoSerifTc(
                       fontSize: 20,
                       fontWeight: FontWeight.w700,
@@ -2668,7 +2684,7 @@ class _PublicSetCard extends ConsumerWidget {
                   Expanded(
                     child: commentsAsync.when(
                       data: (comments) => comments.isEmpty
-                          ? const Center(child: Text('目前還沒有留言'))
+                          ? Center(child: Text(l10n.communityNoComments))
                           : ListView.builder(
                               itemCount: comments.length,
                               itemBuilder: (context, index) {
@@ -2681,23 +2697,36 @@ class _PublicSetCard extends ConsumerWidget {
                                   contentPadding: EdgeInsets.zero,
                                   title: Text(comment.authorName),
                                   subtitle: Text(
-                                    comment.isHidden ? '此留言已隱藏' : comment.body,
+                                    comment.isHidden
+                                        ? l10n.communityHiddenComment
+                                        : comment.body,
                                   ),
                                   trailing: isMine
                                       ? IconButton(
-                                          tooltip: '刪除留言',
+                                          tooltip: l10n.communityDeleteComment,
                                           onPressed: () async {
-                                            await ref
-                                                .read(communityServiceProvider)
-                                                .deleteComment(comment.id);
-                                            ref.invalidate(
-                                              communityCommentsProvider(
-                                                publicSet.id,
-                                              ),
-                                            );
-                                            ref.invalidate(
-                                              publicStudySetsProvider,
-                                            );
+                                            try {
+                                              await ref
+                                                  .read(
+                                                    communityServiceProvider,
+                                                  )
+                                                  .deleteComment(comment.id);
+                                              ref.invalidate(
+                                                communityCommentsProvider(
+                                                  publicSet.id,
+                                                ),
+                                              );
+                                              ref.invalidate(
+                                                publicStudySetsProvider,
+                                              );
+                                            } catch (error) {
+                                              if (context.mounted) {
+                                                _showActionError(
+                                                  context,
+                                                  error,
+                                                );
+                                              }
+                                            }
                                           },
                                           icon: const Icon(
                                             Icons.delete_outline_rounded,
@@ -2706,23 +2735,34 @@ class _PublicSetCard extends ConsumerWidget {
                                       : canHide
                                       ? IconButton(
                                           tooltip: comment.isHidden
-                                              ? '恢復留言'
-                                              : '隱藏留言',
+                                              ? l10n.communityRestoreComment
+                                              : l10n.communityHideComment,
                                           onPressed: () async {
-                                            await ref
-                                                .read(communityServiceProvider)
-                                                .hideComment(
-                                                  comment.id,
-                                                  hidden: !comment.isHidden,
+                                            try {
+                                              await ref
+                                                  .read(
+                                                    communityServiceProvider,
+                                                  )
+                                                  .hideComment(
+                                                    comment.id,
+                                                    hidden: !comment.isHidden,
+                                                  );
+                                              ref.invalidate(
+                                                communityCommentsProvider(
+                                                  publicSet.id,
+                                                ),
+                                              );
+                                              ref.invalidate(
+                                                publicStudySetsProvider,
+                                              );
+                                            } catch (error) {
+                                              if (context.mounted) {
+                                                _showActionError(
+                                                  context,
+                                                  error,
                                                 );
-                                            ref.invalidate(
-                                              communityCommentsProvider(
-                                                publicSet.id,
-                                              ),
-                                            );
-                                            ref.invalidate(
-                                              publicStudySetsProvider,
-                                            );
+                                              }
+                                            }
                                           },
                                           icon: Icon(
                                             comment.isHidden
@@ -2747,23 +2787,29 @@ class _PublicSetCard extends ConsumerWidget {
                           child: TextField(
                             controller: controller,
                             maxLength: 1000,
-                            decoration: const InputDecoration(
-                              hintText: '留下留言',
+                            decoration: InputDecoration(
+                              hintText: l10n.communityCommentHint,
                               counterText: '',
                             ),
                           ),
                         ),
                         IconButton(
-                          tooltip: '送出留言',
+                          tooltip: l10n.communitySendComment,
                           onPressed: () async {
-                            await ref
-                                .read(communityServiceProvider)
-                                .addComment(publicSet.id, controller.text);
-                            controller.clear();
-                            ref.invalidate(
-                              communityCommentsProvider(publicSet.id),
-                            );
-                            ref.invalidate(publicStudySetsProvider);
+                            try {
+                              await ref
+                                  .read(communityServiceProvider)
+                                  .addComment(publicSet.id, controller.text);
+                              controller.clear();
+                              ref.invalidate(
+                                communityCommentsProvider(publicSet.id),
+                              );
+                              ref.invalidate(publicStudySetsProvider);
+                            } catch (error) {
+                              if (context.mounted) {
+                                _showActionError(context, error);
+                              }
+                            }
                           },
                           icon: const Icon(Icons.send_rounded),
                         ),
@@ -2778,6 +2824,15 @@ class _PublicSetCard extends ConsumerWidget {
       ),
     );
     controller.dispose();
+  }
+
+  void _showActionError(BuildContext context, Object error) {
+    final message = AppLocalizations.of(
+      context,
+    ).communityActionFailed('$error');
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(message), behavior: SnackBarBehavior.floating),
+    );
   }
 
   void _showReportDialog(

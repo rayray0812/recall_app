@@ -476,14 +476,19 @@ class CommunityService {
     );
   }
 
-  Future<List<CommunityComment>> fetchComments(String publicSetId) async {
+  Future<List<CommunityComment>> fetchComments(
+    String publicSetId, {
+    int limit = 50,
+    int offset = 0,
+  }) async {
     final client = _client;
     if (client == null) return [];
     final rows = await client
         .from(SupabaseConstants.communityCommentsTable)
         .select()
         .eq('public_set_id', publicSetId)
-        .order('created_at');
+        .order('created_at', ascending: false)
+        .range(offset, offset + limit - 1);
     return (rows as List)
         .map((row) => CommunityComment.fromJson(row as Map<String, dynamic>))
         .toList();
@@ -500,7 +505,6 @@ class CommunityService {
     await client.from(SupabaseConstants.communityCommentsTable).insert({
       'user_id': user.id,
       'public_set_id': publicSetId,
-      'author_name': user.email?.split('@').first ?? 'Learner',
       'body': normalized,
     });
   }
