@@ -1,0 +1,12 @@
+# Copy this file to android/key.properties and fill in your real values.
+# key.properties itself is gitignored — never commit it or the keystore.
+#
+# Generate a keystore (once):
+#   keytool -genkey -v -keystore ~/recall-upload.jks \
+#     -keyalg RSA -keysize 2048 -validity 10000 -alias upload
+#
+# storeFile may be an absolute path or relative to android/app/.
+storePassword=changeme
+keyPassword=changeme
+keyAlias=upload
+storeFile=/absolute/path/to/recall-upload.jks

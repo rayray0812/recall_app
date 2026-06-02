@@ -29,6 +29,27 @@ class _WebImportScreenState extends State<WebImportScreen> {
   bool get _isOnSupportedPage =>
       Uri.tryParse(_currentUrl)?.pathSegments.isNotEmpty ?? false;
 
+  /// The import WebView is a focused tool for finding and scraping Quizlet
+  /// sets, not a general-purpose browser. Only Quizlet (the scrape target) and
+  /// Google (the search launchpad) are reachable; everything else is blocked.
+  static const Set<String> _allowedHostSuffixes = {
+    'quizlet.com',
+    'google.com',
+    'gstatic.com',
+    'googleusercontent.com',
+  };
+
+  static bool _isAllowedNavigation(String url) {
+    final uri = Uri.tryParse(url);
+    if (uri == null) return false;
+    if (uri.scheme == 'about' || uri.scheme == 'data') return true;
+    if (uri.scheme != 'http' && uri.scheme != 'https') return false;
+    final host = uri.host.toLowerCase();
+    return _allowedHostSuffixes.any(
+      (suffix) => host == suffix || host.endsWith('.$suffix'),
+    );
+  }
+
   @override
   void initState() {
     super.initState();
@@ -38,6 +59,12 @@ class _WebImportScreenState extends State<WebImportScreen> {
         ..setJavaScriptMode(JavaScriptMode.unrestricted)
         ..setNavigationDelegate(
           NavigationDelegate(
+            onNavigationRequest: (request) {
+              if (_isAllowedNavigation(request.url)) {
+                return NavigationDecision.navigate;
+              }
+              return NavigationDecision.prevent;
+            },
             onPageStarted: (url) {
               setState(() {
                 _currentUrl = url;
