@@ -14,6 +14,7 @@ import 'package:recall_app/providers/admin_provider.dart';
 import 'package:recall_app/providers/biometric_provider.dart';
 import 'package:recall_app/providers/ai_provider_provider.dart';
 import 'package:recall_app/providers/ai_runtime_provider.dart';
+import 'package:recall_app/features/home/widgets/model_manager_card.dart';
 import 'package:recall_app/providers/gemini_key_provider.dart';
 import 'package:recall_app/providers/locale_provider.dart';
 import 'package:recall_app/providers/notification_provider.dart';
@@ -550,7 +551,9 @@ class _SettingsTabState extends ConsumerState<SettingsTab> {
                     ),
                     const SizedBox(height: 16),
                     // -- Gemma: local model management --
-                    if (selectedProvider == AiProvider.gemma)
+                    if (selectedProvider == AiProvider.gemma) ...[
+                      const ModelManagerCard(),
+                      const SizedBox(height: 12),
                       Container(
                         width: double.infinity,
                         padding: const EdgeInsets.all(12),
@@ -565,7 +568,7 @@ class _SettingsTabState extends ConsumerState<SettingsTab> {
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Text(
-                              'Local model',
+                              'Advanced: import your own model',
                               style: Theme.of(context)
                                   .textTheme
                                   .labelLarge
@@ -694,6 +697,7 @@ class _SettingsTabState extends ConsumerState<SettingsTab> {
                           ],
                         ),
                       ),
+                    ],
                     // -- API Key input (Gemini / Groq) --
                     if (selectedProvider == AiProvider.gemini) ...[
                       const SizedBox(height: 16),
