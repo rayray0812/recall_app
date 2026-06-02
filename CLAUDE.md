@@ -13,7 +13,7 @@
 ## 目前進度
 
 所有基礎步驟 + 功能擴充 + FSRS + 驗證強化 + 管理後台 + UI 優化 + Daily Challenge + Grasp Phase 0 + A + B + B+ 皆已完成。
-程式碼通過 `flutter test`（379 個測試全部通過）。
+程式碼通過 `flutter test`（401 個測試全部通過）。
 `flutter analyze` 無問題（2026-06-02）。
 
 ### 基礎建設（Step 1–10）✅

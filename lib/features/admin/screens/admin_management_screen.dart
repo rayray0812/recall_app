@@ -1,6 +1,7 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:recall_app/models/admin_account_summary.dart';
+import 'package:recall_app/models/admin_community_report.dart';
 import 'package:recall_app/providers/admin_provider.dart';
 
 class AdminManagementScreen extends ConsumerStatefulWidget {
@@ -24,6 +25,7 @@ class _AdminManagementScreenState extends ConsumerState<AdminManagementScreen> {
   void _refresh() {
     ref.invalidate(adminAccountsProvider(_query));
     ref.invalidate(adminAuditProvider);
+    ref.invalidate(adminCommunityReportsProvider);
   }
 
   Future<void> _safeAction(
@@ -35,7 +37,9 @@ class _AdminManagementScreenState extends ConsumerState<AdminManagementScreen> {
       if (!mounted) return;
       _refresh();
       if (success != null && success.isNotEmpty) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(success)));
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(success)));
       }
     } catch (e) {
       if (!mounted) return;
@@ -52,6 +56,7 @@ class _AdminManagementScreenState extends ConsumerState<AdminManagementScreen> {
   Widget build(BuildContext context) {
     final accountsAsync = ref.watch(adminAccountsProvider(_query));
     final auditAsync = ref.watch(adminAuditProvider);
+    final reportsAsync = ref.watch(adminCommunityReportsProvider);
     final adminService = ref.read(adminServiceProvider);
 
     return Scaffold(
@@ -102,9 +107,7 @@ class _AdminManagementScreenState extends ConsumerState<AdminManagementScreen> {
                 return const Card(
                   child: Padding(
                     padding: EdgeInsets.all(12),
-                    child: Text(
-                      '目前沒有可顯示的帳號。\n請先讓使用者登入一次，建立 profiles 後就會出現。',
-                    ),
+                    child: Text('目前沒有可顯示的帳號。\n請先讓使用者登入一次，建立 profiles 後就會出現。'),
                   ),
                 );
               }
@@ -164,6 +167,49 @@ class _AdminManagementScreenState extends ConsumerState<AdminManagementScreen> {
           ),
           const SizedBox(height: 20),
           const Text(
+            '社群檢舉審核',
+            style: TextStyle(fontWeight: FontWeight.w700, fontSize: 18),
+          ),
+          const SizedBox(height: 8),
+          reportsAsync.when(
+            loading: () => const Center(child: CircularProgressIndicator()),
+            error: (e, _) => Text('載入社群檢舉失敗：$e'),
+            data: (reports) {
+              if (reports.isEmpty) return const Text('目前沒有社群檢舉。');
+              return Column(
+                children: reports
+                    .map(
+                      (report) => _CommunityReportCard(
+                        report: report,
+                        onRestore: () => _safeAction(
+                          () => adminService.resolveCommunityReports(
+                            publicSetId: report.publicSetId,
+                            action: 'restore',
+                          ),
+                          success: '已恢復公開集',
+                        ),
+                        onHide: () => _safeAction(
+                          () => adminService.resolveCommunityReports(
+                            publicSetId: report.publicSetId,
+                            action: 'hide',
+                          ),
+                          success: '已隱藏公開集',
+                        ),
+                        onReject: () => _safeAction(
+                          () => adminService.resolveCommunityReports(
+                            publicSetId: report.publicSetId,
+                            action: 'reject',
+                          ),
+                          success: '已拒絕並下架公開集',
+                        ),
+                      ),
+                    )
+                    .toList(),
+              );
+            },
+          ),
+          const SizedBox(height: 20),
+          const Text(
             '稽核紀錄',
             style: TextStyle(fontWeight: FontWeight.w700, fontSize: 18),
           ),
@@ -202,6 +248,58 @@ class _AdminManagementScreenState extends ConsumerState<AdminManagementScreen> {
   }
 }
 
+class _CommunityReportCard extends StatelessWidget {
+  const _CommunityReportCard({
+    required this.report,
+    required this.onRestore,
+    required this.onHide,
+    required this.onReject,
+  });
+
+  final AdminCommunityReport report;
+  final Future<void> Function() onRestore;
+  final Future<void> Function() onHide;
+  final Future<void> Function() onReject;
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      margin: const EdgeInsets.only(bottom: 10),
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              report.title,
+              style: const TextStyle(fontWeight: FontWeight.w700),
+            ),
+            const SizedBox(height: 4),
+            Text('作者：${report.authorName}'),
+            Text('待處理檢舉：${report.pendingReportCount}'),
+            Text('顯示狀態：${report.visibility}'),
+            Text('審核狀態：${report.moderationStatus}'),
+            if (report.moderationReason.isNotEmpty)
+              Text('原因：${report.moderationReason}'),
+            if (report.latestReportAt != null)
+              Text('最新檢舉：${report.latestReportAt!.toLocal()}'),
+            const SizedBox(height: 8),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                OutlinedButton(onPressed: onRestore, child: const Text('恢復公開')),
+                OutlinedButton(onPressed: onHide, child: const Text('暫時隱藏')),
+                FilledButton(onPressed: onReject, child: const Text('拒絕並下架')),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 class _AccountCard extends StatelessWidget {
   final AdminAccountSummary account;
   final Future<void> Function() onSetTeacher;
@@ -235,7 +333,10 @@ class _AccountCard extends StatelessWidget {
           children: [
             Text(
               account.userId,
-              style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 12.5),
+              style: const TextStyle(
+                fontWeight: FontWeight.w700,
+                fontSize: 12.5,
+              ),
             ),
             const SizedBox(height: 2),
             Text(
@@ -253,10 +354,7 @@ class _AccountCard extends StatelessWidget {
               runSpacing: 8,
               children: [
                 if (!account.isBlocked)
-                  OutlinedButton(
-                    onPressed: onBlock,
-                    child: const Text('封鎖'),
-                  ),
+                  OutlinedButton(onPressed: onBlock, child: const Text('封鎖')),
                 if (account.isBlocked)
                   OutlinedButton(
                     onPressed: onUnblock,
@@ -271,11 +369,15 @@ class _AccountCard extends StatelessWidget {
                   child: const Text('授權客服管理員'),
                 ),
                 OutlinedButton(
-                  onPressed: account.classroomRole == 'teacher' ? null : onSetTeacher,
+                  onPressed: account.classroomRole == 'teacher'
+                      ? null
+                      : onSetTeacher,
                   child: const Text('設為老師'),
                 ),
                 OutlinedButton(
-                  onPressed: account.classroomRole == 'student' ? null : onSetStudent,
+                  onPressed: account.classroomRole == 'student'
+                      ? null
+                      : onSetStudent,
                   child: const Text('設為學生'),
                 ),
               ],

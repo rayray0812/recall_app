@@ -363,7 +363,8 @@ class CommunityService {
     try {
       var builder = client
           .from(SupabaseConstants.publicStudySetsTable)
-          .select();
+          .select()
+          .eq('visibility', 'public');
 
       // Apply category filter
       if (category != null && category.isNotEmpty) {
@@ -420,6 +421,7 @@ class CommunityService {
           .from(SupabaseConstants.publicStudySetsTable)
           .select()
           .eq('user_id', userId)
+          .eq('visibility', 'public')
           .order('download_count', ascending: false);
       return (data as List)
           .map((e) => PublicStudySet.fromJson(e as Map<String, dynamic>))

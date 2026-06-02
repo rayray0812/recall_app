@@ -3,6 +3,7 @@ import 'package:recall_app/models/admin_account_summary.dart';
 import 'package:recall_app/models/admin_approval_request.dart';
 import 'package:recall_app/models/admin_audit_entry.dart';
 import 'package:recall_app/models/admin_bulk_job.dart';
+import 'package:recall_app/models/admin_community_report.dart';
 import 'package:recall_app/models/admin_impersonation_session.dart';
 import 'package:recall_app/models/admin_impersonation_telemetry.dart';
 import 'package:recall_app/models/admin_risk_alert.dart';
@@ -34,6 +35,12 @@ final adminAuditProvider = FutureProvider<List<AdminAuditEntry>>((ref) async {
   final adminService = ref.watch(adminServiceProvider);
   return adminService.fetchAuditEntries(limit: 100);
 });
+
+final adminCommunityReportsProvider =
+    FutureProvider<List<AdminCommunityReport>>((ref) async {
+      final adminService = ref.watch(adminServiceProvider);
+      return adminService.fetchCommunityReports();
+    });
 
 final adminRiskAlertsProvider = FutureProvider<List<AdminRiskAlert>>((
   ref,

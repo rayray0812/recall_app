@@ -6,6 +6,7 @@ import 'package:recall_app/models/admin_approval_request.dart';
 import 'package:recall_app/models/admin_bulk_job.dart';
 import 'package:recall_app/models/admin_audit_entry.dart';
 import 'package:recall_app/models/admin_compliance_archive.dart';
+import 'package:recall_app/models/admin_community_report.dart';
 import 'package:recall_app/models/admin_impersonation_session.dart';
 import 'package:recall_app/models/admin_impersonation_telemetry.dart';
 import 'package:recall_app/models/admin_risk_alert.dart';
@@ -35,12 +36,11 @@ class AdminService {
       try {
         final result = await client.rpc(
           'admin_list_accounts',
-          params: {
-            'search_text': normalizedQuery,
-            'row_limit': limit * 20,
-          },
+          params: {'search_text': normalizedQuery, 'row_limit': limit * 20},
         );
-        debugPrint('[Admin] admin_list_accounts returned ${(result is List) ? result.length : 0} rows, type=${result.runtimeType}');
+        debugPrint(
+          '[Admin] admin_list_accounts returned ${(result is List) ? result.length : 0} rows, type=${result.runtimeType}',
+        );
         if (result is List && result.isNotEmpty) {
           debugPrint('[Admin] first row: ${result.first}');
         }
@@ -60,7 +60,9 @@ class AdminService {
             .select('user_id, updated_at')
             .order('updated_at', ascending: false)
             .limit(limit * 20);
-        debugPrint('[Admin] study_sets query returned ${(result as List).length} rows');
+        debugPrint(
+          '[Admin] study_sets query returned ${(result as List).length} rows',
+        );
         return result;
       } catch (e) {
         debugPrint('[Admin] study_sets query FAILED: $e');
@@ -178,11 +180,43 @@ class AdminService {
             return bd.compareTo(ad);
           });
 
-    debugPrint('[Admin] Final account list: ${accounts.length} accounts (showing ${accounts.take(limit).length})');
+    debugPrint(
+      '[Admin] Final account list: ${accounts.length} accounts (showing ${accounts.take(limit).length})',
+    );
     for (final a in accounts.take(5)) {
-      debugPrint('[Admin]   - ${a.email} (${a.userId.substring(0, 8)}...) sets=${a.studySetCount}');
+      debugPrint(
+        '[Admin]   - ${a.email} (${a.userId.substring(0, 8)}...) sets=${a.studySetCount}',
+      );
     }
     return accounts.take(limit).toList();
+  }
+
+  Future<List<AdminCommunityReport>> fetchCommunityReports() async {
+    final client = _supabaseService.clientOrNull;
+    if (client == null) return const [];
+    final rows = await client.rpc('admin_list_community_reports');
+    return (rows as List)
+        .map(
+          (row) => AdminCommunityReport.fromJson(row as Map<String, dynamic>),
+        )
+        .toList();
+  }
+
+  Future<void> resolveCommunityReports({
+    required String publicSetId,
+    required String action,
+    String reason = '',
+  }) async {
+    final client = _supabaseService.clientOrNull;
+    if (client == null) return;
+    await client.rpc(
+      'admin_resolve_community_reports',
+      params: {
+        'target_set_id': publicSetId,
+        'resolution_action': action,
+        'reason': reason,
+      },
+    );
   }
 
   Future<void> setUserClassroomRole({

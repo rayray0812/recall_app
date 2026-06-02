@@ -38,11 +38,11 @@
 
 ### Phase 4：審核與安全
 
-- 管理後台加入檢舉列表、處理狀態、下架公開集。
-- 對被多次檢舉的公開集加上自動隱藏或人工審核佇列。
-- 留言加入敏感詞過濾與 `moderation_status` 審核流程。
+- [x] 管理後台加入檢舉列表、處理狀態、下架公開集。
+- [x] 對被多次檢舉的公開集加上自動隱藏或人工審核佇列。
+- [x] 留言加入敏感詞過濾與 `moderation_status` 審核流程。
 - 針對未成年使用者限制公開個資欄位與留言顯示。
-- 加入內容安全欄位：`visibility`, `moderation_status`, `moderation_reason`。
+- [x] 加入內容安全欄位：`visibility`, `moderation_status`, `moderation_reason`。
 
 ## 驗收標準
 
