@@ -4,6 +4,7 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:recall_app/core/l10n/app_localizations.dart';
 import 'package:recall_app/core/theme/app_theme.dart';
 import 'package:recall_app/core/widgets/adaptive_glass_card.dart';
+import 'package:recall_app/providers/auth_provider.dart';
 import 'package:recall_app/providers/community_provider.dart';
 import 'package:recall_app/providers/study_set_provider.dart';
 import 'package:recall_app/services/community_service.dart';
@@ -16,8 +17,10 @@ class UserProfileScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final l10n = AppLocalizations.of(context);
+    final currentUser = ref.watch(currentUserProvider);
     final profileAsync = ref.watch(userProfileProvider(userId));
     final setsAsync = ref.watch(userPublicSetsProvider(userId));
+    final friendshipAsync = ref.watch(friendshipWithUserProvider(userId));
 
     return Scaffold(
       appBar: AppBar(title: Text(l10n.profileTitle)),
@@ -26,7 +29,25 @@ class UserProfileScreen extends ConsumerWidget {
         children: [
           // Profile header
           profileAsync.when(
-            data: (profile) => _ProfileHeader(profile: profile),
+            data: (profile) => _ProfileHeader(
+              profile: profile,
+              friendshipAction: currentUser == null || currentUser.id == userId
+                  ? null
+                  : friendshipAsync.when(
+                      data: (friendship) => _FriendshipAction(
+                        friendship: friendship,
+                        currentUserId: currentUser.id,
+                        onPressed: () =>
+                            _changeFriendship(context, ref, friendship),
+                      ),
+                      loading: () => const SizedBox(
+                        width: 20,
+                        height: 20,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      ),
+                      error: (_, __) => const SizedBox.shrink(),
+                    ),
+            ),
             loading: () => const Center(
               child: Padding(
                 padding: EdgeInsets.all(24),
@@ -144,12 +165,39 @@ class UserProfileScreen extends ConsumerWidget {
       );
     }
   }
+
+  Future<void> _changeFriendship(
+    BuildContext context,
+    WidgetRef ref,
+    CommunityFriendship? friendship,
+  ) async {
+    final service = ref.read(communityServiceProvider);
+    final currentUserId = ref.read(currentUserProvider)?.id;
+    try {
+      if (friendship == null) {
+        await service.sendFriendRequest(userId);
+      } else if (friendship.status == CommunityFriendshipStatus.pending &&
+          friendship.isIncomingFor(currentUserId ?? '')) {
+        await service.acceptFriendRequest(friendship.id);
+      } else {
+        await service.removeFriendship(friendship.id);
+      }
+      ref.invalidate(communityFriendshipsProvider);
+      ref.invalidate(communityFriendLeaderboardProvider);
+    } catch (error) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('操作失敗：$error')));
+    }
+  }
 }
 
 class _ProfileHeader extends StatelessWidget {
   final UserPublicProfile profile;
+  final Widget? friendshipAction;
 
-  const _ProfileHeader({required this.profile});
+  const _ProfileHeader({required this.profile, this.friendshipAction});
 
   @override
   Widget build(BuildContext context) {
@@ -190,6 +238,10 @@ class _ProfileHeader extends StatelessWidget {
               fontWeight: FontWeight.w700,
             ),
           ),
+          if (friendshipAction != null) ...[
+            const SizedBox(height: 12),
+            friendshipAction!,
+          ],
           const SizedBox(height: 16),
           // Stats row
           Row(
@@ -211,6 +263,47 @@ class _ProfileHeader extends StatelessWidget {
         ],
       ),
     );
+  }
+}
+
+class _FriendshipAction extends StatelessWidget {
+  const _FriendshipAction({
+    required this.friendship,
+    required this.currentUserId,
+    required this.onPressed,
+  });
+
+  final CommunityFriendship? friendship;
+  final String currentUserId;
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    final isBlocked = friendship?.status == CommunityFriendshipStatus.blocked;
+    return OutlinedButton.icon(
+      onPressed: isBlocked ? null : onPressed,
+      icon: Icon(_icon),
+      label: Text(_label),
+    );
+  }
+
+  String get _label {
+    if (friendship == null) return '加好友';
+    return switch (friendship!.status) {
+      CommunityFriendshipStatus.pending =>
+        friendship!.isIncomingFor(currentUserId) ? '接受好友邀請' : '取消邀請',
+      CommunityFriendshipStatus.accepted => '移除好友',
+      CommunityFriendshipStatus.blocked => '已封鎖',
+    };
+  }
+
+  IconData get _icon {
+    if (friendship == null) return Icons.person_add_alt_1_rounded;
+    return switch (friendship!.status) {
+      CommunityFriendshipStatus.pending => Icons.schedule_rounded,
+      CommunityFriendshipStatus.accepted => Icons.people_alt_rounded,
+      CommunityFriendshipStatus.blocked => Icons.block_rounded,
+    };
   }
 }
 

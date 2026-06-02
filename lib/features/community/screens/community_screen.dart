@@ -303,20 +303,37 @@ class _ExploreTabState extends ConsumerState<_ExploreTab> {
         final myPublishedSets = user == null
             ? const <PublicStudySet>[]
             : feedSets.where((set) => set.userId == user.id).take(4).toList();
-        final friendIds = ref.watch(communityFriendIdsProvider);
         final weeklyMinutes = _estimateWeeklyMinutes(
           ref.watch(allReviewLogsProvider),
         );
-        final friendCandidates = _buildFriendCandidates(
-          publicSets: feedSets,
-          currentUserId: user?.id,
-        );
-        final leagueEntries = _buildLeagueEntries(
-          weeklyMinutes: weeklyMinutes,
-          selectedFriendIds: friendIds,
-          candidates: friendCandidates,
-          currentUserName: user?.email?.split('@').first ?? 'You',
-        );
+        final friendships =
+            ref.watch(communityFriendshipsProvider).value ?? const [];
+        final friendCount = friendships
+            .where((item) => item.status == CommunityFriendshipStatus.accepted)
+            .length;
+        final leagueEntries =
+            ref
+                .watch(communityFriendLeaderboardProvider)
+                .value
+                ?.map(
+                  (item) => _LeagueEntry(
+                    userId: item.userId,
+                    displayName: item.displayName,
+                    weeklyMinutes: item.weeklyMinutes,
+                    reviewCount: item.reviewCount,
+                    isCurrentUser: item.isCurrentUser,
+                  ),
+                )
+                .toList() ??
+            [
+              _LeagueEntry(
+                userId: user?.id ?? 'me',
+                displayName: user?.email?.split('@').first ?? 'You',
+                weeklyMinutes: weeklyMinutes,
+                reviewCount: 0,
+                isCurrentUser: true,
+              ),
+            ];
 
         return RefreshIndicator(
           onRefresh: () async {
@@ -393,14 +410,10 @@ class _ExploreTabState extends ConsumerState<_ExploreTab> {
               _FriendsLeagueCard(
                 entries: leagueEntries,
                 weeklyMinutes: weeklyMinutes,
-                friendCount: friendIds.length,
-                onManageFriends: friendCandidates.isEmpty
+                friendCount: friendCount,
+                onManageFriends: user == null
                     ? null
-                    : () => _showFriendPickerSheet(
-                        context,
-                        friendCandidates,
-                        friendIds,
-                      ),
+                    : () => _showFriendManagerSheet(context),
               ),
               const SizedBox(height: 20),
               _SectionHeader(
@@ -679,167 +692,12 @@ class _ExploreTabState extends ConsumerState<_ExploreTab> {
     return points * 2;
   }
 
-  List<_FriendCandidate> _buildFriendCandidates({
-    required List<PublicStudySet> publicSets,
-    required String? currentUserId,
-  }) {
-    final grouped = <String, List<PublicStudySet>>{};
-    for (final set in publicSets) {
-      if (set.userId == currentUserId) continue;
-      grouped.putIfAbsent(set.userId, () => <PublicStudySet>[]).add(set);
-    }
-    final candidates =
-        grouped.entries.map((entry) {
-          final sets = entry.value;
-          final authorName = sets.first.authorName.trim().isEmpty
-              ? 'Learner'
-              : sets.first.authorName.trim();
-          final publishedCount = sets.length;
-          final totalDownloads = sets.fold<int>(
-            0,
-            (sum, set) => sum + set.downloadCount,
-          );
-          final cardVolume = sets.fold<int>(
-            0,
-            (sum, set) => sum + set.cards.length,
-          );
-          final estimatedMinutes =
-              18 +
-              (publishedCount * 9) +
-              (totalDownloads ~/ 2) +
-              (cardVolume ~/ 3);
-          return _FriendCandidate(
-            userId: entry.key,
-            displayName: authorName,
-            publishedCount: publishedCount,
-            totalDownloads: totalDownloads,
-            estimatedWeeklyMinutes: estimatedMinutes,
-          );
-        }).toList()..sort(
-          (a, b) =>
-              b.estimatedWeeklyMinutes.compareTo(a.estimatedWeeklyMinutes),
-        );
-    return candidates;
-  }
-
-  List<_LeagueEntry> _buildLeagueEntries({
-    required int weeklyMinutes,
-    required List<String> selectedFriendIds,
-    required List<_FriendCandidate> candidates,
-    required String currentUserName,
-  }) {
-    final entries = <_LeagueEntry>[
-      _LeagueEntry(
-        userId: 'me',
-        displayName: currentUserName,
-        weeklyMinutes: weeklyMinutes,
-        isCurrentUser: true,
-      ),
-    ];
-    final candidateMap = {
-      for (final candidate in candidates) candidate.userId: candidate,
-    };
-    for (final friendId in selectedFriendIds) {
-      final candidate = candidateMap[friendId];
-      if (candidate == null) continue;
-      entries.add(
-        _LeagueEntry(
-          userId: candidate.userId,
-          displayName: candidate.displayName,
-          weeklyMinutes: candidate.estimatedWeeklyMinutes,
-        ),
-      );
-    }
-    entries.sort((a, b) => b.weeklyMinutes.compareTo(a.weeklyMinutes));
-    return entries;
-  }
-
-  void _showFriendPickerSheet(
-    BuildContext context,
-    List<_FriendCandidate> candidates,
-    List<String> friendIds,
-  ) {
+  void _showFriendManagerSheet(BuildContext context) {
     showModalBottomSheet<void>(
       context: context,
       backgroundColor: Colors.transparent,
       isScrollControlled: true,
-      builder: (context) {
-        return Container(
-          decoration: BoxDecoration(
-            color: Theme.of(context).colorScheme.surface,
-            borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
-          ),
-          child: SafeArea(
-            top: false,
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(20, 12, 20, 20),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Container(
-                    width: 40,
-                    height: 4,
-                    decoration: BoxDecoration(
-                      color: const Color(0xFFD6D1C8),
-                      borderRadius: BorderRadius.circular(999),
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-                  Row(
-                    children: [
-                      Text(
-                        '加好友',
-                        style: GoogleFonts.notoSerifTc(
-                          fontSize: 20,
-                          fontWeight: FontWeight.w700,
-                          color: _darkText,
-                        ),
-                      ),
-                      const Spacer(),
-                      Text(
-                        '先做本地收藏，之後可接真實好友系統',
-                        style: const TextStyle(
-                          fontSize: 12,
-                          color: _subtleText,
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 14),
-                  Flexible(
-                    child: ListView.separated(
-                      shrinkWrap: true,
-                      itemCount: candidates.length,
-                      separatorBuilder: (_, __) => const SizedBox(height: 8),
-                      itemBuilder: (context, index) {
-                        final candidate = candidates[index];
-                        final isFriend = friendIds.contains(candidate.userId);
-                        return _FriendCandidateTile(
-                          candidate: candidate,
-                          isFriend: isFriend,
-                          onToggle: () async {
-                            final notifier = ref.read(
-                              communityFriendIdsProvider.notifier,
-                            );
-                            if (isFriend) {
-                              await notifier.remove(candidate.userId);
-                            } else {
-                              await notifier.add(candidate.userId);
-                            }
-                            if (context.mounted) {
-                              Navigator.of(context).pop();
-                            }
-                          },
-                        );
-                      },
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        );
-      },
+      builder: (_) => const _FriendManagerSheet(),
     );
   }
 }
@@ -1114,33 +972,19 @@ class _TagCloud extends StatelessWidget {
   }
 }
 
-class _FriendCandidate {
-  const _FriendCandidate({
-    required this.userId,
-    required this.displayName,
-    required this.publishedCount,
-    required this.totalDownloads,
-    required this.estimatedWeeklyMinutes,
-  });
-
-  final String userId;
-  final String displayName;
-  final int publishedCount;
-  final int totalDownloads;
-  final int estimatedWeeklyMinutes;
-}
-
 class _LeagueEntry {
   const _LeagueEntry({
     required this.userId,
     required this.displayName,
     required this.weeklyMinutes,
+    required this.reviewCount,
     this.isCurrentUser = false,
   });
 
   final String userId;
   final String displayName;
   final int weeklyMinutes;
+  final int reviewCount;
   final bool isCurrentUser;
 }
 
@@ -1258,7 +1102,7 @@ class _FriendsLeagueCard extends StatelessWidget {
                     ),
                   ),
                   Text(
-                    '${item.weeklyMinutes} min',
+                    '${item.weeklyMinutes} min · ${item.reviewCount} 次複習',
                     style: const TextStyle(
                       fontSize: 13,
                       fontWeight: FontWeight.w700,
@@ -1271,7 +1115,7 @@ class _FriendsLeagueCard extends StatelessWidget {
           }),
           const SizedBox(height: 10),
           const Text(
-            '註：目前只有你的時間來自真實學習紀錄，好友為社群活躍度估算值，後續可接真實好友後端。',
+            '排行榜只顯示好友最近七天的聚合學習時間，不會公開逐筆複習紀錄。',
             style: TextStyle(fontSize: 11, color: _subtleText, height: 1.5),
           ),
         ],
@@ -1280,66 +1124,275 @@ class _FriendsLeagueCard extends StatelessWidget {
   }
 }
 
-class _FriendCandidateTile extends StatelessWidget {
-  const _FriendCandidateTile({
-    required this.candidate,
-    required this.isFriend,
-    required this.onToggle,
-  });
+class _FriendManagerSheet extends ConsumerStatefulWidget {
+  const _FriendManagerSheet();
 
-  final _FriendCandidate candidate;
-  final bool isFriend;
-  final VoidCallback onToggle;
+  @override
+  ConsumerState<_FriendManagerSheet> createState() =>
+      _FriendManagerSheetState();
+}
+
+class _FriendManagerSheetState extends ConsumerState<_FriendManagerSheet> {
+  String _query = '';
 
   @override
   Widget build(BuildContext context) {
+    final currentUser = ref.watch(currentUserProvider);
+    final friendships = ref.watch(communityFriendshipsProvider).value ?? [];
+    final searchResults = _query.isEmpty
+        ? const <CommunityProfileSearchResult>[]
+        : ref.watch(communityProfileSearchProvider(_query)).value ?? [];
+    final relationshipByUserId = {
+      if (currentUser != null)
+        for (final item in friendships) item.otherUserId(currentUser.id): item,
+    };
+    final incoming = friendships
+        .where(
+          (item) =>
+              currentUser != null &&
+              item.status == CommunityFriendshipStatus.pending &&
+              item.isIncomingFor(currentUser.id),
+        )
+        .toList();
+    final existing = friendships
+        .where(
+          (item) =>
+              item.status == CommunityFriendshipStatus.accepted ||
+              (item.status == CommunityFriendshipStatus.pending &&
+                  !item.isIncomingFor(currentUser?.id ?? '')),
+        )
+        .toList();
+
     return Container(
-      padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: const Color(0xFFF9F7F2),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: const Color(0xFFE8E2D7)),
+        color: Theme.of(context).colorScheme.surface,
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
       ),
-      child: Row(
-        children: [
-          CircleAvatar(
-            radius: 22,
-            backgroundColor: AppTheme.indigo.withValues(alpha: 0.14),
-            child: Text(
-              candidate.displayName.isEmpty
-                  ? '?'
-                  : candidate.displayName.substring(0, 1).toUpperCase(),
-              style: const TextStyle(
-                color: AppTheme.indigo,
-                fontWeight: FontWeight.w800,
-              ),
-            ),
+      child: SafeArea(
+        top: false,
+        child: Padding(
+          padding: EdgeInsets.fromLTRB(
+            20,
+            12,
+            20,
+            20 + MediaQuery.viewInsetsOf(context).bottom,
           ),
-          const SizedBox(width: 12),
-          Expanded(
+          child: SizedBox(
+            height: MediaQuery.sizeOf(context).height * 0.72,
             child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
+                Container(
+                  width: 40,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFD6D1C8),
+                    borderRadius: BorderRadius.circular(999),
+                  ),
+                ),
+                const SizedBox(height: 16),
                 Text(
-                  candidate.displayName,
-                  style: const TextStyle(
-                    fontSize: 14,
+                  '管理好友',
+                  style: GoogleFonts.notoSerifTc(
+                    fontSize: 20,
                     fontWeight: FontWeight.w700,
                     color: _darkText,
                   ),
                 ),
-                const SizedBox(height: 4),
-                Text(
-                  '${candidate.publishedCount} published · ${candidate.totalDownloads} downloads · ${candidate.estimatedWeeklyMinutes} min beta',
-                  style: const TextStyle(fontSize: 12, color: _subtleText),
+                const SizedBox(height: 12),
+                TextField(
+                  onChanged: (value) => setState(() => _query = value.trim()),
+                  decoration: const InputDecoration(
+                    prefixIcon: Icon(Icons.search_rounded),
+                    hintText: '搜尋顯示名稱',
+                  ),
+                ),
+                const SizedBox(height: 12),
+                Expanded(
+                  child: ListView(
+                    children: [
+                      if (incoming.isNotEmpty) ...[
+                        const _FriendSheetLabel('待處理邀請'),
+                        ...incoming.map(
+                          (item) => _FriendshipTile(
+                            label: item.otherDisplayName,
+                            actionLabel: '接受',
+                            onAction: () => _accept(item.id),
+                            secondaryLabel: '拒絕',
+                            onSecondary: () => _remove(item.id),
+                          ),
+                        ),
+                      ],
+                      if (existing.isNotEmpty) ...[
+                        const _FriendSheetLabel('好友與已送出邀請'),
+                        ...existing.map(
+                          (item) => _FriendshipTile(
+                            label: item.otherDisplayName,
+                            actionLabel: _actionLabel(item),
+                            onAction: () => _performAction(
+                              item.otherUserId(currentUser?.id ?? ''),
+                              item,
+                            ),
+                          ),
+                        ),
+                      ],
+                      if (_query.isNotEmpty) ...[
+                        const _FriendSheetLabel('搜尋結果'),
+                        ...searchResults.map((profile) {
+                          final relationship =
+                              relationshipByUserId[profile.userId];
+                          return _FriendshipTile(
+                            label: profile.displayName,
+                            actionLabel: _actionLabel(
+                              relationship,
+                              currentUserId: currentUser?.id,
+                            ),
+                            onAction: () =>
+                                _performAction(profile.userId, relationship),
+                          );
+                        }),
+                      ],
+                      if (_query.isEmpty && incoming.isEmpty)
+                        const Padding(
+                          padding: EdgeInsets.all(20),
+                          child: Text(
+                            '輸入顯示名稱搜尋使用者，送出好友邀請。',
+                            textAlign: TextAlign.center,
+                            style: TextStyle(color: _subtleText),
+                          ),
+                        ),
+                    ],
+                  ),
                 ),
               ],
             ),
           ),
-          OutlinedButton(
-            onPressed: onToggle,
-            child: Text(isFriend ? '已加入' : '加入'),
+        ),
+      ),
+    );
+  }
+
+  String _actionLabel(
+    CommunityFriendship? relationship, {
+    String? currentUserId,
+  }) {
+    if (relationship == null) return '加好友';
+    return switch (relationship.status) {
+      CommunityFriendshipStatus.pending =>
+        relationship.isIncomingFor(currentUserId ?? '') ? '接受' : '取消邀請',
+      CommunityFriendshipStatus.accepted => '移除好友',
+      CommunityFriendshipStatus.blocked => '已封鎖',
+    };
+  }
+
+  Future<void> _performAction(
+    String userId,
+    CommunityFriendship? relationship,
+  ) async {
+    if (relationship?.status == CommunityFriendshipStatus.blocked) return;
+    try {
+      if (relationship == null) {
+        await ref.read(communityServiceProvider).sendFriendRequest(userId);
+      } else if (relationship.status == CommunityFriendshipStatus.pending &&
+          relationship.isIncomingFor(ref.read(currentUserProvider)?.id ?? '')) {
+        await ref
+            .read(communityServiceProvider)
+            .acceptFriendRequest(relationship.id);
+      } else {
+        await _remove(relationship.id);
+        return;
+      }
+      _refresh();
+    } catch (error) {
+      _showError(error);
+    }
+  }
+
+  Future<void> _accept(String friendshipId) async {
+    try {
+      await ref
+          .read(communityServiceProvider)
+          .acceptFriendRequest(friendshipId);
+      _refresh();
+    } catch (error) {
+      _showError(error);
+    }
+  }
+
+  Future<void> _remove(String friendshipId) async {
+    try {
+      await ref.read(communityServiceProvider).removeFriendship(friendshipId);
+      _refresh();
+    } catch (error) {
+      _showError(error);
+    }
+  }
+
+  void _refresh() {
+    ref.invalidate(communityFriendshipsProvider);
+    ref.invalidate(communityFriendLeaderboardProvider);
+  }
+
+  void _showError(Object error) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text('操作失敗：$error')));
+  }
+}
+
+class _FriendSheetLabel extends StatelessWidget {
+  const _FriendSheetLabel(this.label);
+
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(top: 8, bottom: 6),
+      child: Text(
+        label,
+        style: const TextStyle(fontWeight: FontWeight.w700, color: _darkText),
+      ),
+    );
+  }
+}
+
+class _FriendshipTile extends StatelessWidget {
+  const _FriendshipTile({
+    required this.label,
+    required this.actionLabel,
+    required this.onAction,
+    this.secondaryLabel,
+    this.onSecondary,
+  });
+
+  final String label;
+  final String actionLabel;
+  final VoidCallback onAction;
+  final String? secondaryLabel;
+  final VoidCallback? onSecondary;
+
+  @override
+  Widget build(BuildContext context) {
+    return ListTile(
+      contentPadding: EdgeInsets.zero,
+      leading: CircleAvatar(
+        backgroundColor: AppTheme.indigo.withValues(alpha: 0.14),
+        child: Text(
+          label.isEmpty ? '?' : label.substring(0, 1).toUpperCase(),
+          style: const TextStyle(
+            color: AppTheme.indigo,
+            fontWeight: FontWeight.w800,
           ),
+        ),
+      ),
+      title: Text(label),
+      trailing: Wrap(
+        spacing: 6,
+        children: [
+          if (secondaryLabel != null)
+            TextButton(onPressed: onSecondary, child: Text(secondaryLabel!)),
+          OutlinedButton(onPressed: onAction, child: Text(actionLabel)),
         ],
       ),
     );

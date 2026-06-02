@@ -125,6 +125,87 @@ class CommunityComment {
   }
 }
 
+enum CommunityFriendshipStatus { pending, accepted, blocked }
+
+class CommunityFriendship {
+  final String id;
+  final String requesterId;
+  final String addresseeId;
+  final CommunityFriendshipStatus status;
+  final String otherDisplayName;
+
+  const CommunityFriendship({
+    required this.id,
+    required this.requesterId,
+    required this.addresseeId,
+    required this.status,
+    this.otherDisplayName = 'Learner',
+  });
+
+  factory CommunityFriendship.fromJson(Map<String, dynamic> json) {
+    return CommunityFriendship(
+      id: json['id'] as String? ?? '',
+      requesterId: json['requester_id'] as String? ?? '',
+      addresseeId: json['addressee_id'] as String? ?? '',
+      status: CommunityFriendshipStatus.values.byName(
+        json['status'] as String? ?? 'pending',
+      ),
+      otherDisplayName: json['other_display_name'] as String? ?? 'Learner',
+    );
+  }
+
+  bool isIncomingFor(String userId) => addresseeId == userId;
+
+  String otherUserId(String userId) =>
+      requesterId == userId ? addresseeId : requesterId;
+}
+
+class CommunityProfileSearchResult {
+  final String userId;
+  final String displayName;
+  final String avatarUrl;
+
+  const CommunityProfileSearchResult({
+    required this.userId,
+    required this.displayName,
+    this.avatarUrl = '',
+  });
+
+  factory CommunityProfileSearchResult.fromJson(Map<String, dynamic> json) {
+    return CommunityProfileSearchResult(
+      userId: json['user_id'] as String? ?? '',
+      displayName: json['display_name'] as String? ?? 'Learner',
+      avatarUrl: json['avatar_url'] as String? ?? '',
+    );
+  }
+}
+
+class CommunityLeaderboardEntry {
+  final String userId;
+  final String displayName;
+  final int weeklyMinutes;
+  final int reviewCount;
+  final bool isCurrentUser;
+
+  const CommunityLeaderboardEntry({
+    required this.userId,
+    required this.displayName,
+    required this.weeklyMinutes,
+    required this.reviewCount,
+    this.isCurrentUser = false,
+  });
+
+  factory CommunityLeaderboardEntry.fromJson(Map<String, dynamic> json) {
+    return CommunityLeaderboardEntry(
+      userId: json['user_id'] as String? ?? '',
+      displayName: json['display_name'] as String? ?? 'Learner',
+      weeklyMinutes: (json['weekly_minutes'] as num?)?.toInt() ?? 0,
+      reviewCount: (json['review_count'] as num?)?.toInt() ?? 0,
+      isCurrentUser: json['is_current_user'] as bool? ?? false,
+    );
+  }
+}
+
 /// User public profile stats.
 class UserPublicProfile {
   final String userId;
@@ -552,6 +633,77 @@ class CommunityService {
       'public_set_id': publicSetId,
       'rating': rating,
     });
+  }
+
+  Future<List<CommunityFriendship>> fetchMyFriendships() async {
+    final client = _client;
+    final user = client?.auth.currentUser;
+    if (client == null || user == null) return [];
+    final rows = await client.rpc('get_my_community_friendships');
+    return (rows as List)
+        .map((row) => CommunityFriendship.fromJson(row as Map<String, dynamic>))
+        .toList();
+  }
+
+  Future<List<CommunityProfileSearchResult>> searchProfiles(
+    String query,
+  ) async {
+    final client = _client;
+    final normalized = sanitizeSearchTerm(query);
+    if (client == null || normalized.isEmpty) return [];
+    final rows = await client.rpc(
+      'search_community_profiles',
+      params: {'search_query': normalized},
+    );
+    return (rows as List)
+        .map(
+          (row) => CommunityProfileSearchResult.fromJson(
+            row as Map<String, dynamic>,
+          ),
+        )
+        .toList();
+  }
+
+  Future<List<CommunityLeaderboardEntry>> fetchFriendLeaderboard() async {
+    final client = _client;
+    if (client == null || client.auth.currentUser == null) return [];
+    final rows = await client.rpc('get_community_friend_leaderboard');
+    return (rows as List)
+        .map(
+          (row) =>
+              CommunityLeaderboardEntry.fromJson(row as Map<String, dynamic>),
+        )
+        .toList();
+  }
+
+  Future<void> sendFriendRequest(String addresseeId) async {
+    final client = _client;
+    final user = client?.auth.currentUser;
+    if (client == null || user == null) {
+      throw Exception('Must be logged in to add friends');
+    }
+    await client.from(SupabaseConstants.communityFriendshipsTable).insert({
+      'requester_id': user.id,
+      'addressee_id': addresseeId,
+    });
+  }
+
+  Future<void> acceptFriendRequest(String friendshipId) async {
+    final client = _client;
+    if (client == null) throw Exception('Supabase not configured');
+    await client
+        .from(SupabaseConstants.communityFriendshipsTable)
+        .update({'status': 'accepted'})
+        .eq('id', friendshipId);
+  }
+
+  Future<void> removeFriendship(String friendshipId) async {
+    final client = _client;
+    if (client == null) throw Exception('Supabase not configured');
+    await client
+        .from(SupabaseConstants.communityFriendshipsTable)
+        .delete()
+        .eq('id', friendshipId);
   }
 
   Future<void> _setInteraction(

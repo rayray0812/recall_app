@@ -136,6 +136,39 @@ final communityMyRatingProvider = FutureProvider.family<int?, String>((
   return service.fetchMyRating(publicSetId);
 });
 
+final communityFriendshipsProvider = FutureProvider<List<CommunityFriendship>>((
+  ref,
+) {
+  ref.watch(currentUserProvider);
+  return ref.watch(communityServiceProvider).fetchMyFriendships();
+});
+
+final communityFriendLeaderboardProvider =
+    FutureProvider<List<CommunityLeaderboardEntry>>((ref) {
+      ref.watch(currentUserProvider);
+      return ref.watch(communityServiceProvider).fetchFriendLeaderboard();
+    });
+
+final communityProfileSearchProvider =
+    FutureProvider.family<List<CommunityProfileSearchResult>, String>((
+      ref,
+      query,
+    ) {
+      ref.watch(currentUserProvider);
+      return ref.watch(communityServiceProvider).searchProfiles(query);
+    });
+
+final friendshipWithUserProvider =
+    FutureProvider.family<CommunityFriendship?, String>((ref, userId) async {
+      final user = ref.watch(currentUserProvider);
+      if (user == null || user.id == userId) return null;
+      final friendships = await ref.watch(communityFriendshipsProvider.future);
+      for (final friendship in friendships) {
+        if (friendship.otherUserId(user.id) == userId) return friendship;
+      }
+      return null;
+    });
+
 class CommunityFriendIdsNotifier extends StateNotifier<List<String>> {
   CommunityFriendIdsNotifier(this._localStorage)
     : super(_localStorage.getCommunityFriendIds());
