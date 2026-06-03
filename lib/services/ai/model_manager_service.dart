@@ -71,41 +71,81 @@ class ModelManagerService {
 
   /// Stream a model to disk, reporting progress. Writes to a `.part` file and
   /// atomically renames on success so a half-finished download is never seen
-  /// as ready. Returns the final installed path.
+  /// as ready.
+  ///
+  /// Large model files (hundreds of MB) over mobile networks frequently drop
+  /// mid-stream, so this retries up to [maxAttempts] times and RESUMES from the
+  /// bytes already on disk via an HTTP `Range` request — a dropped connection
+  /// continues instead of starting over. Always re-requests the canonical
+  /// resolve URL so Hugging Face issues a fresh (non-expired) signed CDN
+  /// redirect on each attempt. Returns the final installed path.
   Future<String> download(
     AiModelSpec spec, {
     void Function(ModelDownloadProgress)? onProgress,
+    int maxAttempts = 6,
   }) async {
     final file = await _fileFor(spec);
     final tmp = File('${file.path}.part');
+    final fallbackTotal = spec.sizeMb * 1024 * 1024;
 
-    final request = http.Request('GET', Uri.parse(spec.url));
-    final response = await _client.send(request);
-    if (response.statusCode != 200) {
-      throw HttpException(
-        'Model download failed (HTTP ${response.statusCode})',
-        uri: Uri.parse(spec.url),
-      );
-    }
+    Object? lastError;
+    for (var attempt = 1; attempt <= maxAttempts; attempt++) {
+      var existing = await tmp.exists() ? await tmp.length() : 0;
+      try {
+        final request = http.Request('GET', Uri.parse(spec.url));
+        if (existing > 0) {
+          request.headers['range'] = 'bytes=$existing-';
+        }
+        final response = await _client.send(request);
 
-    final total = response.contentLength ?? (spec.sizeMb * 1024 * 1024);
-    var received = 0;
-    final sink = tmp.openWrite();
-    try {
-      await for (final chunk in response.stream) {
-        received += chunk.length;
-        sink.add(chunk);
-        onProgress?.call(
-          ModelDownloadProgress(receivedBytes: received, totalBytes: total),
+        final status = response.statusCode;
+        final bool append;
+        if (status == 206) {
+          append = true; // server honored Range → resume
+        } else if (status == 200) {
+          append = false; // server ignored Range → restart from scratch
+          existing = 0;
+        } else {
+          throw HttpException(
+            'Model download failed (HTTP $status)',
+            uri: Uri.parse(spec.url),
+          );
+        }
+
+        // contentLength is the REMAINING bytes; total = on-disk + remaining.
+        final remaining = response.contentLength;
+        final total = remaining != null ? existing + remaining : fallbackTotal;
+
+        var received = existing;
+        final sink = tmp.openWrite(
+          mode: append ? FileMode.append : FileMode.write,
         );
-      }
-      await sink.flush();
-    } finally {
-      await sink.close();
-    }
+        try {
+          await for (final chunk in response.stream) {
+            received += chunk.length;
+            sink.add(chunk);
+            onProgress?.call(
+              ModelDownloadProgress(receivedBytes: received, totalBytes: total),
+            );
+          }
+          await sink.flush();
+        } finally {
+          await sink.close();
+        }
 
-    await tmp.rename(file.path);
-    return file.path;
+        await tmp.rename(file.path);
+        return file.path;
+      } catch (e) {
+        lastError = e;
+        // Keep the .part file so the next attempt resumes where we stopped.
+        if (attempt < maxAttempts) {
+          await Future<void>.delayed(Duration(seconds: 2 * attempt));
+        }
+      }
+    }
+    throw Exception(
+      'Model download failed after $maxAttempts attempts: $lastError',
+    );
   }
 
   /// Remove an installed model (and any partial download) to free space.
