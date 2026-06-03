@@ -1,7 +1,7 @@
 # Grasp AI 功能 — 現況與待辦 Roadmap
 
 > **這份文件的用途**：清空對話後接續開發的單一入口。記錄本地優先 AI 的整體進度、
-> 還沒做的功能、以及只能在實機驗證的待辦。最後更新：2026-06-03。
+> 還沒做的功能、以及只能在實機驗證的待辦。最後更新：2026-06-03（L2 口訣按鈕完成）。
 >
 > 相關文件：`ai_strategy_plan.md`（本地優先策略總綱）、`ai_model_engine_plan.md`
 > （模型選型 + LiteRT-LM 引擎遷移）。本檔是「目前做到哪 / 接下來做什麼」的彙整。
@@ -49,7 +49,7 @@
 - [ ] 填 catalog 的真實 **SHA-256**（實機下載成功後算 `shasum -a 256 <file>`，填進 `ai_model_catalog.dart`，啟用完整性驗證）。
 
 ### B. 還沒做的本地 AI 功能（純 Dart，可在對話內驗證）
-- [ ] **L2 口訣按鈕**：`mnemonicProvider` 已存在但無 UI。仿 `ReviewHintButton` / `AiExampleButton`，加在卡片編輯或 SRS 複習。
+- [x] **L2 口訣按鈕**（`cd3a77b`）：🧠 口訣 pill 加在 SRS 複習翻面後（評分按鈕上方），點擊呼叫 `mnemonicProvider` 顯示口訣 bubble。`localMnemonicAvailableProvider` gate 顯示、fail-silent。l10n（中/英）+ 3 widget 測試。
 - [ ] **L3 答錯混淆診斷對話框**：`confusionExplanationProvider` 已存在但無 UI。在 quiz 答錯後彈出「為什麼這兩個容易混淆 + 記憶技巧」。
 - [ ] **智慧干擾選項**（新 AiTaskType）：用相似詞生成更像的測驗錯誤選項。
 - [ ] **AI 家教對話**（Socratic，綁 FSRS 弱點卡片）— localPreferred，長對話可上雲 fallback。
