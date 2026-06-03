@@ -85,6 +85,18 @@ final mnemonicProvider =
       );
     });
 
+/// Whether the L3 confusion-diagnosis affordance can run right now.
+///
+/// Mirrors [localHintAvailableProvider] but for the confusion-diagnosis task:
+/// true only when [AiRouter] routes it to a local engine. UI hides the
+/// "why the mix-up?" affordance until this resolves to true.
+final localConfusionAvailableProvider =
+    Provider.autoDispose<AsyncValue<bool>>((ref) {
+  return ref
+      .watch(aiRouteProvider(AiTaskType.confusionDiagnosis))
+      .whenData((decision) => decision.isLocal);
+});
+
 /// Argument for [confusionExplanationProvider].
 class ConfusionRequest {
   final String targetTerm;

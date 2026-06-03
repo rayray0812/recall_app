@@ -331,6 +331,10 @@ class AppLocalizations {
   String get mnemonicCta => '';
   String get mnemonicGenerating => '';
   String get mnemonicUnavailable => '';
+  String get confusionWhyCta => '';
+  String get confusionDialogTitle => '';
+  String get confusionGenerating => '';
+  String get confusionUnavailable => '';
   String get ttsEngine => '';
   String get ttsCloudTts => '';
   String get ttsCloudTtsDesc => '';
@@ -1400,6 +1404,15 @@ class AppLocalizationsZh extends AppLocalizations {
   @override
   String get mnemonicUnavailable =>
       '\u53E3\u8A23\u751F\u6210\u5931\u6557\uFF0C\u8ACB\u91CD\u8A66';
+  @override
+  String get confusionWhyCta => '\u70BA\u4EC0\u9EBC\u6703\u641E\u6DF7\uFF1F';
+  @override
+  String get confusionDialogTitle => '\u6DF7\u6DC6\u8A3A\u65B7';
+  @override
+  String get confusionGenerating => '\u5206\u6790\u4E2D\u2026';
+  @override
+  String get confusionUnavailable =>
+      '\u8A3A\u65B7\u751F\u6210\u5931\u6557\uFF0C\u8ACB\u91CD\u8A66';
   @override
   String get ttsEngine => '\u8A9E\u97F3\u5F15\u64CE';
   @override
@@ -2932,6 +2945,14 @@ class AppLocalizationsEn extends AppLocalizations {
   String get mnemonicGenerating => 'Thinking of a mnemonic…';
   @override
   String get mnemonicUnavailable => 'Mnemonic generation failed, please retry';
+  @override
+  String get confusionWhyCta => 'Why the mix-up?';
+  @override
+  String get confusionDialogTitle => 'Confusion check';
+  @override
+  String get confusionGenerating => 'Analyzing…';
+  @override
+  String get confusionUnavailable => 'Diagnosis failed, please retry';
   @override
   String get ttsEngine => 'Voice Engine';
   @override

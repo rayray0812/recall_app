@@ -19,6 +19,8 @@ import 'package:recall_app/core/l10n/app_localizations.dart';
 import 'package:recall_app/core/theme/app_theme.dart';
 import 'package:recall_app/core/widgets/app_back_button.dart';
 import 'package:recall_app/features/study/widgets/completion_celebrate_overlay.dart';
+import 'package:recall_app/features/study/widgets/confusion_diagnosis_dialog.dart';
+import 'package:recall_app/providers/local_ai_provider.dart';
 
 enum QuizQuestionType { multipleChoice, textInput, trueFalse }
 
@@ -177,6 +179,10 @@ class _QuizScreenState extends ConsumerState<QuizScreen>
   int _pacedQuestionCount = 0;
   bool _showCompletionCelebrate = false;
   bool _navigatingToResult = false;
+  // Whether the local AI confusion-diagnosis affordance can run. Refreshed from
+  // [localConfusionAvailableProvider] in build(); read synchronously when an
+  // answer is graded to decide whether to pause auto-advance for the L3 dialog.
+  bool _confusionAvailable = false;
   final _xpToastKey = GlobalKey<XpToastOverlayState>();
 
   QuizSettings get _effectiveSettings {
@@ -340,7 +346,14 @@ class _QuizScreenState extends ConsumerState<QuizScreen>
       }
     });
 
-    _advanceAfterDelay(1200);
+    // When the local-AI confusion diagnosis is offered (wrong answer in the
+    // main round), hold on auto-advance so the learner can open the dialog and
+    // move on with the manual "Next" button. Otherwise keep the timed flow.
+    final offersDiagnosis =
+        !isCorrect && !_isReinforcementRound && _confusionAvailable;
+    if (!offersDiagnosis) {
+      _advanceAfterDelay(1200);
+    }
   }
 
   void _onTextInputAnswered(bool isCorrect) {
@@ -387,20 +400,26 @@ class _QuizScreenState extends ConsumerState<QuizScreen>
 
   void _advanceAfterDelay(int ms) {
     _advanceTimer?.cancel();
-    _advanceTimer = Timer(Duration(milliseconds: ms), () {
-      if (!mounted) return;
-      if (_currentIndex < _questions.length - 1) {
-        setState(() {
-          _currentIndex++;
-          _selectedOption = null;
-          _questionStartedAt = DateTime.now();
-        });
-      } else if (!_isReinforcementRound && _wrongIndices.isNotEmpty) {
-        _startReinforcementRound();
-      } else {
-        _playCompletionCelebrateThenShowResults();
-      }
-    });
+    _advanceTimer = Timer(Duration(milliseconds: ms), _advance);
+  }
+
+  /// Moves to the next question / reinforcement round / results. Safe to call
+  /// directly (e.g. from a manual "Next" button) — cancels any pending
+  /// auto-advance timer first so the two paths can't double-fire.
+  void _advance() {
+    if (!mounted) return;
+    _advanceTimer?.cancel();
+    if (_currentIndex < _questions.length - 1) {
+      setState(() {
+        _currentIndex++;
+        _selectedOption = null;
+        _questionStartedAt = DateTime.now();
+      });
+    } else if (!_isReinforcementRound && _wrongIndices.isNotEmpty) {
+      _startReinforcementRound();
+    } else {
+      _playCompletionCelebrateThenShowResults();
+    }
   }
 
   Future<void> _playCompletionCelebrateThenShowResults() async {
@@ -499,6 +518,11 @@ class _QuizScreenState extends ConsumerState<QuizScreen>
         .firstOrNull;
 
     final l10n = AppLocalizations.of(context);
+
+    // Warm + cache local-AI availability so _onMultipleChoiceSelect can read it
+    // synchronously when grading the next answer.
+    _confusionAvailable =
+        ref.watch(localConfusionAvailableProvider).valueOrNull ?? false;
 
     if (studySet == null || studySet.cards.length < 4 || _questions.isEmpty) {
       return Scaffold(
@@ -712,7 +736,63 @@ class _QuizScreenState extends ConsumerState<QuizScreen>
                 : null,
           );
         }),
+        if (_shouldOfferDiagnosis(question, correctIndex))
+          _buildDiagnosisRow(question, correctIndex, l10n),
       ],
+    );
+  }
+
+  /// True when the learner just answered this multiple-choice question wrong in
+  /// the main round and the local-AI diagnosis can run. In this state
+  /// auto-advance was suppressed, so a manual "Next" button is shown alongside.
+  bool _shouldOfferDiagnosis(QuizQuestion question, int correctIndex) {
+    if (_selectedOption == null) return false;
+    if (_isReinforcementRound || !_confusionAvailable) return false;
+    final chosenCardIndex = question.optionIndices[_selectedOption!];
+    return chosenCardIndex != correctIndex;
+  }
+
+  Widget _buildDiagnosisRow(
+    QuizQuestion question,
+    int correctIndex,
+    AppLocalizations l10n,
+  ) {
+    final chosenCard = _allCards[question.optionIndices[_selectedOption!]];
+    final targetCard = question.card;
+    return Padding(
+      padding: const EdgeInsets.only(top: 20),
+      child: Row(
+        children: [
+          Expanded(
+            child: TextButton.icon(
+              onPressed: () => ConfusionDiagnosisDialog.show(
+                context,
+                request: ConfusionRequest(
+                  targetTerm: targetCard.term,
+                  targetDefinition: targetCard.definition,
+                  chosenTerm: chosenCard.term,
+                  chosenDefinition: chosenCard.definition,
+                ),
+              ),
+              icon: const Text('🧠', style: TextStyle(fontSize: 16)),
+              label: Text(
+                l10n.confusionWhyCta,
+                style: const TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                ),
+                overflow: TextOverflow.ellipsis,
+              ),
+              style: TextButton.styleFrom(foregroundColor: AppTheme.indigo),
+            ),
+          ),
+          const SizedBox(width: 8),
+          FilledButton(
+            onPressed: _advance,
+            child: Text(l10n.next),
+          ),
+        ],
+      ),
     );
   }
 
