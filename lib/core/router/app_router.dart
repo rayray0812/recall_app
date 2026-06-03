@@ -414,6 +414,10 @@ GoRouter createAppRouter({
         builder: (context, state) => const CommunityScreen(),
       ),
       GoRoute(
+        path: '/community/notifications',
+        builder: (context, state) => const CommunityNotificationsScreen(),
+      ),
+      GoRoute(
         path: '/profile/:userId',
         builder: (context, state) {
           final userId = state.pathParameters['userId']!;

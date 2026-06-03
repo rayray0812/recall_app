@@ -67,9 +67,13 @@ class _CommunityScreenState extends ConsumerState<CommunityScreen>
 
     final body = Column(
       children: [
-        // Search bar
         Padding(
           padding: EdgeInsets.fromLTRB(16, widget.embedded ? 12 : 6, 16, 0),
+          child: _CommunityTopBar(embedded: widget.embedded),
+        ),
+        // Search bar
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 10, 16, 0),
           child: Container(
             decoration: BoxDecoration(
               color: Colors.white,
@@ -185,14 +189,7 @@ class _CommunityScreenState extends ConsumerState<CommunityScreen>
               : TabBarView(
                   controller: _tabController,
                   children: [
-                    _ExploreTab(
-                      query: _query,
-                      onTagTap: (tag) {
-                        _searchController.text = tag;
-                        _onSearch(tag);
-                        setState(() => _isSearching = true);
-                      },
-                    ),
+                    _ExploreTab(query: _query),
                     const _ClassroomTab(),
                   ],
                 ),
@@ -252,13 +249,357 @@ class _CommunityScreenState extends ConsumerState<CommunityScreen>
   }
 }
 
+class _CommunityTopBar extends ConsumerWidget {
+  const _CommunityTopBar({required this.embedded});
+
+  final bool embedded;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final l10n = AppLocalizations.of(context);
+    final currentUser = ref.watch(currentUserProvider);
+    final friendships = ref.watch(communityFriendshipsProvider).valueOrNull;
+    final pendingCount = currentUser == null || friendships == null
+        ? 0
+        : friendships
+              .where(
+                (item) =>
+                    item.status == CommunityFriendshipStatus.pending &&
+                    item.isIncomingFor(currentUser.id),
+              )
+              .length;
+
+    return Row(
+      children: [
+        Expanded(
+          child: Text(
+            l10n.communityTitle,
+            style: GoogleFonts.notoSerifTc(
+              fontSize: embedded ? 22 : 24,
+              fontWeight: FontWeight.w800,
+              color: _darkText,
+            ),
+          ),
+        ),
+        Stack(
+          clipBehavior: Clip.none,
+          children: [
+            IconButton.filledTonal(
+              tooltip: '好友通知',
+              onPressed: currentUser == null
+                  ? () => context.push('/login')
+                  : () => context.push('/community/notifications'),
+              icon: const Icon(Icons.notifications_outlined),
+            ),
+            if (pendingCount > 0)
+              Positioned(
+                right: 2,
+                top: 2,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 5,
+                    vertical: 2,
+                  ),
+                  decoration: BoxDecoration(
+                    color: AppTheme.red,
+                    borderRadius: BorderRadius.circular(999),
+                    border: Border.all(color: Colors.white, width: 1.5),
+                  ),
+                  child: Text(
+                    pendingCount > 9 ? '9+' : '$pendingCount',
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 10,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                ),
+              ),
+          ],
+        ),
+      ],
+    );
+  }
+}
+
+class CommunityNotificationsScreen extends ConsumerWidget {
+  const CommunityNotificationsScreen({super.key});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final currentUser = ref.watch(currentUserProvider);
+    final friendshipsAsync = ref.watch(communityFriendshipsProvider);
+
+    return Scaffold(
+      appBar: AppBar(title: const Text('好友通知')),
+      body: SafeArea(
+        child: currentUser == null
+            ? _NotificationLoginPrompt(onLogin: () => context.push('/login'))
+            : friendshipsAsync.when(
+                data: (friendships) {
+                  final incoming = friendships
+                      .where(
+                        (item) =>
+                            item.status == CommunityFriendshipStatus.pending &&
+                            item.isIncomingFor(currentUser.id),
+                      )
+                      .toList();
+                  final outgoing = friendships
+                      .where(
+                        (item) =>
+                            item.status == CommunityFriendshipStatus.pending &&
+                            !item.isIncomingFor(currentUser.id),
+                      )
+                      .toList();
+                  final accepted = friendships
+                      .where(
+                        (item) =>
+                            item.status == CommunityFriendshipStatus.accepted,
+                      )
+                      .toList();
+
+                  return RefreshIndicator(
+                    onRefresh: () async {
+                      ref.invalidate(communityFriendshipsProvider);
+                      ref.invalidate(communityFriendLeaderboardProvider);
+                      await ref.read(communityFriendshipsProvider.future);
+                    },
+                    child: ListView(
+                      physics: const AlwaysScrollableScrollPhysics(),
+                      padding: const EdgeInsets.fromLTRB(20, 12, 20, 28),
+                      children: [
+                        _NotificationSummaryCard(
+                          pendingCount: incoming.length,
+                          friendCount: accepted.length,
+                        ),
+                        const SizedBox(height: 18),
+                        const _FriendSheetLabel('待處理好友邀請'),
+                        if (incoming.isEmpty)
+                          const _EmptyNotificationCard(
+                            icon: Icons.notifications_none_rounded,
+                            title: '目前沒有新的好友邀請',
+                            body: '有人邀請你成為好友時，這裡會直接出現接受與拒絕按鈕。',
+                          )
+                        else
+                          ...incoming.map(
+                            (item) => _FriendshipTile(
+                              label: item.otherDisplayName,
+                              actionLabel: '接受',
+                              onAction: () => _accept(ref, context, item.id),
+                              secondaryLabel: '拒絕',
+                              onSecondary: () => _remove(ref, context, item.id),
+                            ),
+                          ),
+                        if (outgoing.isNotEmpty) ...[
+                          const SizedBox(height: 14),
+                          const _FriendSheetLabel('已送出的邀請'),
+                          ...outgoing.map(
+                            (item) => _FriendshipTile(
+                              label: item.otherDisplayName,
+                              actionLabel: '取消邀請',
+                              onAction: () => _remove(ref, context, item.id),
+                            ),
+                          ),
+                        ],
+                        if (accepted.isNotEmpty) ...[
+                          const SizedBox(height: 14),
+                          const _FriendSheetLabel('目前好友'),
+                          ...accepted.map(
+                            (item) => _FriendshipTile(
+                              label: item.otherDisplayName,
+                              actionLabel: '查看',
+                              onAction: () => context.push(
+                                '/profile/${item.otherUserId(currentUser.id)}',
+                              ),
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                  );
+                },
+                loading: () => const Center(child: CircularProgressIndicator()),
+                error: (error, _) => Center(
+                  child: Padding(
+                    padding: const EdgeInsets.all(24),
+                    child: Text('載入好友通知失敗：$error', textAlign: TextAlign.center),
+                  ),
+                ),
+              ),
+      ),
+    );
+  }
+
+  Future<void> _accept(
+    WidgetRef ref,
+    BuildContext context,
+    String friendshipId,
+  ) async {
+    try {
+      await ref
+          .read(communityServiceProvider)
+          .acceptFriendRequest(friendshipId);
+      _refresh(ref);
+    } catch (error) {
+      if (!context.mounted) return;
+      _showError(context, error);
+    }
+  }
+
+  Future<void> _remove(
+    WidgetRef ref,
+    BuildContext context,
+    String friendshipId,
+  ) async {
+    try {
+      await ref.read(communityServiceProvider).removeFriendship(friendshipId);
+      _refresh(ref);
+    } catch (error) {
+      if (!context.mounted) return;
+      _showError(context, error);
+    }
+  }
+
+  void _refresh(WidgetRef ref) {
+    ref.invalidate(communityFriendshipsProvider);
+    ref.invalidate(communityFriendLeaderboardProvider);
+  }
+
+  void _showError(BuildContext context, Object error) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('操作失敗：$error'),
+        behavior: SnackBarBehavior.floating,
+      ),
+    );
+  }
+}
+
+class _NotificationLoginPrompt extends StatelessWidget {
+  const _NotificationLoginPrompt({required this.onLogin});
+
+  final VoidCallback onLogin;
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(28),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(Icons.lock_rounded, size: 48, color: _subtleText),
+            const SizedBox(height: 12),
+            const Text(
+              '登入後即可查看好友通知',
+              style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
+            ),
+            const SizedBox(height: 16),
+            FilledButton(onPressed: onLogin, child: const Text('登入')),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _NotificationSummaryCard extends StatelessWidget {
+  const _NotificationSummaryCard({
+    required this.pendingCount,
+    required this.friendCount,
+  });
+
+  final int pendingCount;
+  final int friendCount;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: AppTheme.indigo.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: AppTheme.indigo.withValues(alpha: 0.18)),
+      ),
+      child: Row(
+        children: [
+          const Icon(
+            Icons.notifications_active_rounded,
+            color: AppTheme.indigo,
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Text(
+              pendingCount == 0
+                  ? '沒有未處理邀請，現在共有 $friendCount 位好友。'
+                  : '你有 $pendingCount 則好友邀請待處理。',
+              style: const TextStyle(
+                color: _darkText,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _EmptyNotificationCard extends StatelessWidget {
+  const _EmptyNotificationCard({
+    required this.icon,
+    required this.title,
+    required this.body,
+  });
+
+  final IconData icon;
+  final String title;
+  final String body;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: const Color(0xFFE8E8E8)),
+      ),
+      child: Row(
+        children: [
+          Icon(icon, color: _subtleText),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: const TextStyle(
+                    color: _darkText,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  body,
+                  style: const TextStyle(color: _subtleText, fontSize: 13),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 // -- Explore Tab --
 
 class _ExploreTab extends ConsumerStatefulWidget {
   final String query;
-  final ValueChanged<String> onTagTap;
 
-  const _ExploreTab({required this.query, required this.onTagTap});
+  const _ExploreTab({required this.query});
 
   @override
   ConsumerState<_ExploreTab> createState() => _ExploreTabState();
@@ -282,7 +623,6 @@ class _ExploreTabState extends ConsumerState<_ExploreTab> {
 
     return feedAsync.when(
       data: (feedSets) {
-        final topTags = _extractTopTags(feedSets, fallbackLocalSets: localSets);
         final categories = _extractCategories(feedSets);
         final latestLocalSet = _latestLocalSet(localSets);
         final savedIds = ref.watch(communitySavedSetIdsProvider);
@@ -291,18 +631,6 @@ class _ExploreTabState extends ConsumerState<_ExploreTab> {
           ...downloadedSets.map((set) => set.id),
           ...?ref.watch(communityDownloadedSetIdsProvider).value,
         };
-        final recommendedSets = _buildRecommendedSets(
-          publicSets: feedSets,
-          localSets: localSets,
-          currentUserId: user?.id,
-        );
-        final savedSets = feedSets
-            .where((set) => savedIds.contains(set.id))
-            .take(4)
-            .toList();
-        final myPublishedSets = user == null
-            ? const <PublicStudySet>[]
-            : feedSets.where((set) => set.userId == user.id).take(4).toList();
         final weeklyMinutes = _estimateWeeklyMinutes(
           ref.watch(allReviewLogsProvider),
         );
@@ -378,33 +706,6 @@ class _ExploreTabState extends ConsumerState<_ExploreTab> {
                 ),
                 const SizedBox(height: 20),
               ],
-              if (recommendedSets.isNotEmpty) ...[
-                _SectionHeader(icon: Icons.auto_awesome_rounded, title: '為你推薦'),
-                const SizedBox(height: 10),
-                _PublicSetRail(
-                  sets: recommendedSets.take(4).toList(),
-                  emphasis: _PublicSetCardEmphasis.recommended,
-                ),
-                const SizedBox(height: 20),
-              ],
-              if (savedSets.isNotEmpty) ...[
-                _SectionHeader(icon: Icons.bookmark_rounded, title: '收藏清單'),
-                const SizedBox(height: 10),
-                _PublicSetRail(
-                  sets: savedSets,
-                  emphasis: _PublicSetCardEmphasis.saved,
-                ),
-                const SizedBox(height: 20),
-              ],
-              if (myPublishedSets.isNotEmpty) ...[
-                _SectionHeader(icon: Icons.cloud_done_rounded, title: '我的發布'),
-                const SizedBox(height: 10),
-                _PublicSetRail(
-                  sets: myPublishedSets,
-                  emphasis: _PublicSetCardEmphasis.owned,
-                ),
-                const SizedBox(height: 20),
-              ],
               _SectionHeader(icon: Icons.emoji_events_rounded, title: '好友聯賽'),
               const SizedBox(height: 10),
               _FriendsLeagueCard(
@@ -415,13 +716,6 @@ class _ExploreTabState extends ConsumerState<_ExploreTab> {
                     ? null
                     : () => _showFriendManagerSheet(context),
               ),
-              const SizedBox(height: 20),
-              _SectionHeader(
-                icon: Icons.tag_rounded,
-                title: l10n.communityPopularTags,
-              ),
-              const SizedBox(height: 10),
-              _TagCloud(tags: topTags, onTagTap: widget.onTagTap),
               const SizedBox(height: 20),
               _SectionHeader(
                 icon: Icons.trending_up_rounded,
@@ -567,100 +861,6 @@ class _ExploreTabState extends ConsumerState<_ExploreTab> {
           (set) => service.findMatchingLocalStudySet(set, localSets) != null,
         )
         .toList();
-  }
-
-  List<PublicStudySet> _buildRecommendedSets({
-    required List<PublicStudySet> publicSets,
-    required List<StudySet> localSets,
-    required String? currentUserId,
-  }) {
-    final service = ref.read(communityServiceProvider);
-    final localKeywords = <String>{};
-    for (final set in localSets) {
-      localKeywords.addAll(_tokenize(set.title));
-      localKeywords.addAll(_tokenize(set.description));
-      for (final card in set.cards) {
-        localKeywords.addAll(_tokenize(card.term));
-        localKeywords.addAll(_tokenize(card.definition));
-        localKeywords.addAll(card.tags.map((tag) => tag.trim().toLowerCase()));
-      }
-    }
-
-    final scored = <({PublicStudySet set, int score})>[];
-    for (final set in publicSets) {
-      if (set.userId == currentUserId) continue;
-      if (service.findMatchingLocalStudySet(set, localSets) != null) continue;
-      final score = _recommendationScore(set, localKeywords);
-      if (score > 0) {
-        scored.add((set: set, score: score));
-      }
-    }
-    scored.sort((a, b) {
-      final byScore = b.score.compareTo(a.score);
-      if (byScore != 0) return byScore;
-      final byDownloads = b.set.downloadCount.compareTo(a.set.downloadCount);
-      if (byDownloads != 0) return byDownloads;
-      return b.set.createdAt.compareTo(a.set.createdAt);
-    });
-    return scored.map((item) => item.set).toList();
-  }
-
-  int _recommendationScore(PublicStudySet set, Set<String> localKeywords) {
-    var score = 0;
-    for (final token in _tokenize(set.title)) {
-      if (localKeywords.contains(token)) score += 4;
-    }
-    for (final token in _tokenize(set.description)) {
-      if (localKeywords.contains(token)) score += 1;
-    }
-    for (final card in set.cards) {
-      for (final token in _tokenize(card.term)) {
-        if (localKeywords.contains(token)) score += 2;
-      }
-      for (final token in _tokenize(card.definition)) {
-        if (localKeywords.contains(token)) score += 1;
-      }
-    }
-    for (final tag in set.tags.map((tag) => tag.trim().toLowerCase())) {
-      if (localKeywords.contains(tag)) score += 6;
-    }
-    return score;
-  }
-
-  Set<String> _tokenize(String input) {
-    return input
-        .toLowerCase()
-        .split(RegExp(r'[^a-z0-9\u4e00-\u9fff]+'))
-        .where((token) => token.length >= 2)
-        .toSet();
-  }
-
-  List<String> _extractTopTags(
-    List<PublicStudySet> publicSets, {
-    required List<StudySet> fallbackLocalSets,
-  }) {
-    final counts = <String, int>{};
-    for (final set in publicSets) {
-      for (final tag in set.tags) {
-        final normalized = tag.trim();
-        if (normalized.isEmpty) continue;
-        counts.update(normalized, (value) => value + 1, ifAbsent: () => 1);
-      }
-    }
-    if (counts.isEmpty) {
-      for (final set in fallbackLocalSets) {
-        for (final card in set.cards) {
-          for (final tag in card.tags) {
-            final normalized = tag.trim();
-            if (normalized.isEmpty) continue;
-            counts.update(normalized, (value) => value + 1, ifAbsent: () => 1);
-          }
-        }
-      }
-    }
-    final sorted = counts.entries.toList()
-      ..sort((a, b) => b.value.compareTo(a.value));
-    return sorted.take(10).map((entry) => entry.key).toList();
   }
 
   List<String> _extractCategories(List<PublicStudySet> publicSets) {
@@ -895,79 +1095,6 @@ class _CategoryChip extends StatelessWidget {
           ),
         ),
       ),
-    );
-  }
-}
-
-class _PublicSetRail extends StatelessWidget {
-  const _PublicSetRail({required this.sets, required this.emphasis});
-
-  final List<PublicStudySet> sets;
-  final _PublicSetCardEmphasis emphasis;
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      children: sets
-          .map((set) => _PublicSetCard(publicSet: set, emphasis: emphasis))
-          .toList(),
-    );
-  }
-}
-
-class _TagCloud extends StatelessWidget {
-  const _TagCloud({required this.tags, required this.onTagTap});
-
-  final List<String> tags;
-  final ValueChanged<String> onTagTap;
-
-  @override
-  Widget build(BuildContext context) {
-    if (tags.isEmpty) {
-      return Container(
-        padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(
-          color: const Color(0xFFFAF8F4),
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: const Color(0xFFE8E2D7)),
-        ),
-        child: const Text(
-          '還沒有可用標籤，先發布或下載幾套內容會更完整。',
-          style: TextStyle(fontSize: 13, color: _subtleText),
-        ),
-      );
-    }
-
-    return Wrap(
-      spacing: 8,
-      runSpacing: 8,
-      children: tags
-          .map(
-            (tag) => InkWell(
-              onTap: () => onTagTap(tag),
-              borderRadius: BorderRadius.circular(999),
-              child: Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 14,
-                  vertical: 9,
-                ),
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(999),
-                  border: Border.all(color: const Color(0xFFE2DDD2)),
-                ),
-                child: Text(
-                  '# $tag',
-                  style: const TextStyle(
-                    fontSize: 13,
-                    fontWeight: FontWeight.w600,
-                    color: _darkText,
-                  ),
-                ),
-              ),
-            ),
-          )
-          .toList(),
     );
   }
 }
@@ -1452,6 +1579,62 @@ class _SortChip extends StatelessWidget {
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+class _TinyMetric extends StatelessWidget {
+  const _TinyMetric({required this.icon, required this.label});
+
+  final IconData icon;
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(icon, size: 14, color: _subtleText),
+        const SizedBox(width: 3),
+        Text(label, style: const TextStyle(color: _subtleText, fontSize: 13)),
+      ],
+    );
+  }
+}
+
+class _RatingPill extends StatelessWidget {
+  const _RatingPill({required this.averageRating, required this.ratingCount});
+
+  final double averageRating;
+  final int ratingCount;
+
+  @override
+  Widget build(BuildContext context) {
+    final hasRating = ratingCount > 0;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      decoration: BoxDecoration(
+        color: AppTheme.gold.withValues(alpha: 0.14),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: AppTheme.gold.withValues(alpha: 0.28)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Icon(Icons.star_rounded, size: 14, color: AppTheme.gold),
+          const SizedBox(width: 3),
+          Text(
+            hasRating
+                ? '${averageRating.toStringAsFixed(1)} · $ratingCount'
+                : '尚未評分',
+            style: const TextStyle(
+              color: _darkText,
+              fontSize: 12,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -2014,6 +2197,91 @@ class _PublicSetsList extends ConsumerWidget {
 
 // -- Public Set Card --
 
+class _RatingActionPanel extends ConsumerWidget {
+  const _RatingActionPanel({required this.publicSet});
+
+  final PublicStudySet publicSet;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final l10n = AppLocalizations.of(context);
+    final user = ref.watch(currentUserProvider);
+    final myRating = user == null
+        ? null
+        : ref.watch(communityMyRatingProvider(publicSet.id)).valueOrNull;
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+      decoration: BoxDecoration(
+        color: AppTheme.gold.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: AppTheme.gold.withValues(alpha: 0.24)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(Icons.star_rounded, color: AppTheme.gold, size: 20),
+              const SizedBox(width: 6),
+              Expanded(
+                child: Text(
+                  publicSet.ratingCount == 0
+                      ? l10n.communityRate
+                      : '${publicSet.averageRating.toStringAsFixed(1)} / 5 · ${publicSet.ratingCount} 則評分',
+                  style: const TextStyle(
+                    color: _darkText,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Row(
+            children: List.generate(5, (index) {
+              final rating = index + 1;
+              final selected = rating <= (myRating ?? 0);
+              return IconButton(
+                visualDensity: VisualDensity.compact,
+                tooltip: user == null ? '登入後評分' : '$rating 星',
+                onPressed: user == null
+                    ? null
+                    : () => _setRating(context, ref, rating),
+                icon: Icon(
+                  selected ? Icons.star_rounded : Icons.star_outline_rounded,
+                  color: AppTheme.gold,
+                ),
+              );
+            }),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _setRating(
+    BuildContext context,
+    WidgetRef ref,
+    int rating,
+  ) async {
+    try {
+      await ref.read(communityServiceProvider).setRating(publicSet.id, rating);
+      ref.invalidate(communityMyRatingProvider(publicSet.id));
+      ref.invalidate(publicStudySetsProvider);
+    } catch (error) {
+      if (!context.mounted) return;
+      final message = AppLocalizations.of(
+        context,
+      ).communityActionFailed('$error');
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(message), behavior: SnackBarBehavior.floating),
+      );
+    }
+  }
+}
+
 class _PublicSetCard extends ConsumerWidget {
   final PublicStudySet publicSet;
   final _PublicSetCardEmphasis emphasis;
@@ -2025,6 +2293,7 @@ class _PublicSetCard extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final l10n = AppLocalizations.of(context);
     final isSaved = ref.watch(
       communitySavedSetIdsProvider.select((ids) => ids.contains(publicSet.id)),
     );
@@ -2088,9 +2357,11 @@ class _PublicSetCard extends ConsumerWidget {
                       ),
                     ),
                     const SizedBox(height: 4),
-                    Row(
+                    Wrap(
+                      crossAxisAlignment: WrapCrossAlignment.center,
+                      spacing: 10,
+                      runSpacing: 6,
                       children: [
-                        // Tappable author name → profile
                         GestureDetector(
                           onTap: () =>
                               context.push('/profile/${publicSet.userId}'),
@@ -2116,61 +2387,17 @@ class _PublicSetCard extends ConsumerWidget {
                             ],
                           ),
                         ),
-                        const SizedBox(width: 10),
-                        const Icon(
-                          Icons.download_rounded,
-                          size: 14,
-                          color: _subtleText,
+                        _TinyMetric(
+                          icon: Icons.style_rounded,
+                          label: l10n.nCards(publicSet.cards.length),
                         ),
-                        const SizedBox(width: 2),
-                        Text(
-                          '${publicSet.downloadCount}',
-                          style: const TextStyle(
-                            color: _subtleText,
-                            fontSize: 13,
-                          ),
+                        _TinyMetric(
+                          icon: Icons.download_rounded,
+                          label: '${publicSet.downloadCount}',
                         ),
-                        const SizedBox(width: 8),
-                        const Icon(
-                          Icons.favorite_rounded,
-                          size: 14,
-                          color: _subtleText,
-                        ),
-                        const SizedBox(width: 2),
-                        Text(
-                          '${publicSet.likeCount}',
-                          style: const TextStyle(
-                            color: _subtleText,
-                            fontSize: 13,
-                          ),
-                        ),
-                        const SizedBox(width: 8),
-                        const Icon(
-                          Icons.star_rounded,
-                          size: 14,
-                          color: AppTheme.gold,
-                        ),
-                        const SizedBox(width: 2),
-                        Text(
-                          publicSet.averageRating.toStringAsFixed(1),
-                          style: const TextStyle(
-                            color: _subtleText,
-                            fontSize: 13,
-                          ),
-                        ),
-                        const SizedBox(width: 8),
-                        const Icon(
-                          Icons.chat_bubble_outline_rounded,
-                          size: 14,
-                          color: _subtleText,
-                        ),
-                        const SizedBox(width: 2),
-                        Text(
-                          '${publicSet.commentCount}',
-                          style: const TextStyle(
-                            color: _subtleText,
-                            fontSize: 13,
-                          ),
+                        _RatingPill(
+                          averageRating: publicSet.averageRating,
+                          ratingCount: publicSet.ratingCount,
                         ),
                       ],
                     ),
@@ -2559,33 +2786,7 @@ class _PublicSetCard extends ConsumerWidget {
                 padding: const EdgeInsets.fromLTRB(20, 0, 20, 24),
                 child: Column(
                   children: [
-                    Row(
-                      children: [
-                        Expanded(
-                          child: OutlinedButton.icon(
-                            onPressed: user == null
-                                ? null
-                                : () => _showRatingDialog(context, ref),
-                            icon: const Icon(Icons.star_outline_rounded),
-                            label: Text(
-                              publicSet.ratingCount == 0
-                                  ? l10n.communityRate
-                                  : '${publicSet.averageRating.toStringAsFixed(1)} (${publicSet.ratingCount})',
-                            ),
-                          ),
-                        ),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: OutlinedButton.icon(
-                            onPressed: () => _showCommentsSheet(context, ref),
-                            icon: const Icon(Icons.chat_bubble_outline_rounded),
-                            label: Text(
-                              l10n.communityComments(publicSet.commentCount),
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
+                    _RatingActionPanel(publicSet: publicSet),
                     const SizedBox(height: 8),
                     if (user != null && user.id != publicSet.userId) ...[
                       SizedBox(
@@ -2651,240 +2852,6 @@ class _PublicSetCard extends ConsumerWidget {
           ),
         ),
       ),
-    );
-  }
-
-  Future<void> _showRatingDialog(BuildContext context, WidgetRef ref) async {
-    final l10n = AppLocalizations.of(context);
-    int? currentRating;
-    try {
-      currentRating = await ref.read(
-        communityMyRatingProvider(publicSet.id).future,
-      );
-    } catch (error) {
-      if (context.mounted) _showActionError(context, error);
-      return;
-    }
-    if (!context.mounted) return;
-    await showDialog<void>(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: Text(l10n.communityRateTitle),
-        content: Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: List.generate(5, (index) {
-            final rating = index + 1;
-            return IconButton(
-              onPressed: () async {
-                try {
-                  await ref
-                      .read(communityServiceProvider)
-                      .setRating(publicSet.id, rating);
-                  ref.invalidate(communityMyRatingProvider(publicSet.id));
-                  ref.invalidate(publicStudySetsProvider);
-                  if (dialogContext.mounted) Navigator.of(dialogContext).pop();
-                } catch (error) {
-                  if (dialogContext.mounted) {
-                    _showActionError(dialogContext, error);
-                  }
-                }
-              },
-              icon: Icon(
-                rating <= (currentRating ?? 0)
-                    ? Icons.star_rounded
-                    : Icons.star_outline_rounded,
-                color: AppTheme.gold,
-              ),
-            );
-          }),
-        ),
-      ),
-    );
-  }
-
-  Future<void> _showCommentsSheet(BuildContext context, WidgetRef ref) async {
-    final l10n = AppLocalizations.of(context);
-    final controller = TextEditingController();
-    await showModalBottomSheet<void>(
-      context: context,
-      isScrollControlled: true,
-      builder: (sheetContext) => Consumer(
-        builder: (context, ref, _) {
-          final commentsAsync = ref.watch(
-            communityCommentsProvider(publicSet.id),
-          );
-          final currentUser = ref.watch(currentUserProvider);
-          return Padding(
-            padding: EdgeInsets.fromLTRB(
-              20,
-              18,
-              20,
-              MediaQuery.viewInsetsOf(context).bottom + 18,
-            ),
-            child: SizedBox(
-              height: MediaQuery.sizeOf(context).height * 0.65,
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    l10n.communityCommentsTitle,
-                    style: GoogleFonts.notoSerifTc(
-                      fontSize: 20,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  Expanded(
-                    child: commentsAsync.when(
-                      data: (comments) => comments.isEmpty
-                          ? Center(child: Text(l10n.communityNoComments))
-                          : ListView.builder(
-                              itemCount: comments.length,
-                              itemBuilder: (context, index) {
-                                final comment = comments[index];
-                                final isMine =
-                                    currentUser?.id == comment.userId;
-                                final canHide =
-                                    currentUser?.id == publicSet.userId;
-                                return ListTile(
-                                  contentPadding: EdgeInsets.zero,
-                                  title: Text(comment.authorName),
-                                  subtitle: Text(
-                                    comment.isHidden
-                                        ? l10n.communityHiddenComment
-                                        : comment.body,
-                                  ),
-                                  trailing: isMine
-                                      ? IconButton(
-                                          tooltip: l10n.communityDeleteComment,
-                                          onPressed: () async {
-                                            try {
-                                              await ref
-                                                  .read(
-                                                    communityServiceProvider,
-                                                  )
-                                                  .deleteComment(comment.id);
-                                              ref.invalidate(
-                                                communityCommentsProvider(
-                                                  publicSet.id,
-                                                ),
-                                              );
-                                              ref.invalidate(
-                                                publicStudySetsProvider,
-                                              );
-                                            } catch (error) {
-                                              if (context.mounted) {
-                                                _showActionError(
-                                                  context,
-                                                  error,
-                                                );
-                                              }
-                                            }
-                                          },
-                                          icon: const Icon(
-                                            Icons.delete_outline_rounded,
-                                          ),
-                                        )
-                                      : canHide
-                                      ? IconButton(
-                                          tooltip: comment.isHidden
-                                              ? l10n.communityRestoreComment
-                                              : l10n.communityHideComment,
-                                          onPressed: () async {
-                                            try {
-                                              await ref
-                                                  .read(
-                                                    communityServiceProvider,
-                                                  )
-                                                  .hideComment(
-                                                    comment.id,
-                                                    hidden: !comment.isHidden,
-                                                  );
-                                              ref.invalidate(
-                                                communityCommentsProvider(
-                                                  publicSet.id,
-                                                ),
-                                              );
-                                              ref.invalidate(
-                                                publicStudySetsProvider,
-                                              );
-                                            } catch (error) {
-                                              if (context.mounted) {
-                                                _showActionError(
-                                                  context,
-                                                  error,
-                                                );
-                                              }
-                                            }
-                                          },
-                                          icon: Icon(
-                                            comment.isHidden
-                                                ? Icons.visibility_outlined
-                                                : Icons.visibility_off_outlined,
-                                          ),
-                                        )
-                                      : null,
-                                );
-                              },
-                            ),
-                      loading: () =>
-                          const Center(child: CircularProgressIndicator()),
-                      error: (error, _) => Center(child: Text('$error')),
-                    ),
-                  ),
-                  if (currentUser != null) ...[
-                    const SizedBox(height: 8),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: TextField(
-                            controller: controller,
-                            maxLength: 1000,
-                            decoration: InputDecoration(
-                              hintText: l10n.communityCommentHint,
-                              counterText: '',
-                            ),
-                          ),
-                        ),
-                        IconButton(
-                          tooltip: l10n.communitySendComment,
-                          onPressed: () async {
-                            try {
-                              await ref
-                                  .read(communityServiceProvider)
-                                  .addComment(publicSet.id, controller.text);
-                              controller.clear();
-                              ref.invalidate(
-                                communityCommentsProvider(publicSet.id),
-                              );
-                              ref.invalidate(publicStudySetsProvider);
-                            } catch (error) {
-                              if (context.mounted) {
-                                _showActionError(context, error);
-                              }
-                            }
-                          },
-                          icon: const Icon(Icons.send_rounded),
-                        ),
-                      ],
-                    ),
-                  ],
-                ],
-              ),
-            ),
-          );
-        },
-      ),
-    );
-    controller.dispose();
-  }
-
-  void _showActionError(BuildContext context, Object error) {
-    final message = AppLocalizations.of(
-      context,
-    ).communityActionFailed('$error');
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(message), behavior: SnackBarBehavior.floating),
     );
   }
 
