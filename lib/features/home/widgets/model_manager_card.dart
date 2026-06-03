@@ -67,10 +67,21 @@ class _ModelManagerCardState extends ConsumerState<ModelManagerCard> {
       if (mounted) {
         setState(() {
           _downloadingId = null;
-          _error = '$e';
+          _error = _friendlyError(e);
         });
       }
     }
+  }
+
+  String _friendlyError(Object e) {
+    final s = e.toString();
+    if (s.contains('Failed host lookup') ||
+        s.contains('SocketException') ||
+        s.contains('ClientException')) {
+      return '網路連線失敗。請確認已連上網路（WiFi 有訊號、無需登入頁）後再重試 — '
+          '下載會從中斷處續傳。';
+    }
+    return '下載失敗：$e';
   }
 
   /// Make an already-installed model the active one for inference.
