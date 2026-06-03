@@ -62,3 +62,6 @@ folders.lock
 
 # Personal learning-portfolio / journal (not for the public repo)
 portfolio/
+
+# Flutter skills source clone (skills are copied into .claude/skills/)
+flutter-skills-repo/
