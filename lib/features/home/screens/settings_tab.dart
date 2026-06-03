@@ -22,7 +22,6 @@ import 'package:recall_app/providers/pomodoro_provider.dart';
 import 'package:recall_app/providers/profile_provider.dart';
 import 'package:recall_app/providers/sync_provider.dart';
 import 'package:file_picker/file_picker.dart';
-import 'package:recall_app/services/on_device_ai_service.dart';
 
 class SettingsTab extends ConsumerStatefulWidget {
   final VoidCallback onResetTab;
@@ -447,10 +446,6 @@ class _SettingsTabState extends ConsumerState<SettingsTab> {
         // Cache the model-status future so it isn't recreated on every
         // setDialogState call (repeated MethodChannel calls caused crashes).
         var gemmaLocalModelPath = ref.read(gemmaLocalModelPathProvider);
-        var modelStatusFuture = gemmaLocalModelPath.trim().isEmpty
-            ? Future.value(const LocalModelStatus(
-                ready: false, message: 'No model file imported yet.'))
-            : OnDeviceAiService.checkModel(gemmaLocalModelPath);
         return StatefulBuilder(
           builder: (ctx, setDialogState) {
             return AlertDialog(
@@ -460,247 +455,52 @@ class _SettingsTabState extends ConsumerState<SettingsTab> {
                   mainAxisSize: MainAxisSize.min,
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    // -- AI Provider selector --
+                    // —— AI 服務 ——
                     Text(
                       l10n.aiProvider,
                       style: Theme.of(context).textTheme.labelMedium,
                     ),
                     const SizedBox(height: 8),
                     SegmentedButton<AiProvider>(
-                      segments: [
+                      segments: const [
+                        ButtonSegment<AiProvider>(
+                          value: AiProvider.gemma,
+                          label: Text('本機'),
+                          icon: Icon(Icons.memory_rounded, size: 16),
+                        ),
                         ButtonSegment<AiProvider>(
                           value: AiProvider.gemini,
-                          label: const Text('Gemini'),
-                          icon: const Icon(Icons.auto_awesome, size: 16),
+                          label: Text('Gemini'),
+                          icon: Icon(Icons.auto_awesome, size: 16),
                         ),
                         ButtonSegment<AiProvider>(
                           value: AiProvider.groq,
-                          label: const Text('Groq'),
-                          icon: const Icon(Icons.bolt, size: 16),
-                        ),
-                        ButtonSegment<AiProvider>(
-                          value: AiProvider.gemma,
-                          label: const Text('Gemma'),
-                          icon: const Icon(Icons.memory_rounded, size: 16),
+                          label: Text('Groq'),
+                          icon: Icon(Icons.bolt, size: 16),
                         ),
                       ],
                       selected: {selectedProvider},
-                      onSelectionChanged: (s) {
-                        setDialogState(() => selectedProvider = s.first);
+                      onSelectionChanged: (s) =>
+                          setDialogState(() => selectedProvider = s.first),
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      switch (selectedProvider) {
+                        AiProvider.gemma =>
+                          '裝置本機 AI — 免費、離線、隱私（需先下載模型）',
+                        AiProvider.gemini => '雲端 AI — 速度快、品質好（需 API 金鑰）',
+                        AiProvider.groq => '免費雲端 AI（需 API 金鑰）',
                       },
-                    ),
-                    if (selectedProvider == AiProvider.groq)
-                      Padding(
-                        padding: const EdgeInsets.only(top: 6),
-                        child: Text(
-                          l10n.groqFreeLabel,
-                          style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                            color: Colors.green.shade700,
-                          ),
-                        ),
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: Theme.of(context).colorScheme.onSurfaceVariant,
                       ),
+                    ),
+                    const SizedBox(height: 16),
+
+                    // —— 服務專屬設定 ——
                     if (selectedProvider == AiProvider.gemma)
-                      Padding(
-                        padding: const EdgeInsets.only(top: 6),
-                        child: Text(
-                          'On-device inference via .litertlm model. No API key or network needed.',
-                          style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                            color: Theme.of(context).colorScheme.onSurfaceVariant,
-                          ),
-                        ),
-                      ),
-                    const SizedBox(height: 16),
-                    // -- Privacy mode (force on-device, never use cloud) --
-                    Row(
-                      children: [
-                        const Icon(Icons.shield_outlined, size: 18),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                'Privacy mode',
-                                style: Theme.of(context)
-                                    .textTheme
-                                    .labelLarge
-                                    ?.copyWith(fontWeight: FontWeight.w700),
-                              ),
-                              Text(
-                                'Use on-device AI only — never send to the cloud.',
-                                style: Theme.of(context).textTheme.bodySmall
-                                    ?.copyWith(
-                                      color: Theme.of(
-                                        context,
-                                      ).colorScheme.onSurfaceVariant,
-                                    ),
-                              ),
-                            ],
-                          ),
-                        ),
-                        Switch(
-                          value: ref.read(aiPrivacyModeProvider),
-                          onChanged: (v) async {
-                            await ref
-                                .read(aiPrivacyModeProvider.notifier)
-                                .setEnabled(v);
-                            setDialogState(() {});
-                          },
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 16),
-                    // -- Gemma: local model management --
-                    if (selectedProvider == AiProvider.gemma) ...[
                       const ModelManagerCard(),
-                      const SizedBox(height: 12),
-                      Container(
-                        width: double.infinity,
-                        padding: const EdgeInsets.all(12),
-                        decoration: BoxDecoration(
-                          color: Theme.of(context)
-                              .colorScheme
-                              .surfaceContainerHighest
-                              .withValues(alpha: 0.45),
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              'Advanced: import your own model',
-                              style: Theme.of(context)
-                                  .textTheme
-                                  .labelLarge
-                                  ?.copyWith(fontWeight: FontWeight.w700),
-                            ),
-                            const SizedBox(height: 4),
-                            FutureBuilder<LocalModelStatus>(
-                              future: modelStatusFuture,
-                              builder: (context, snapshot) {
-                                final status = snapshot.data;
-                                final icon = status?.ready == true
-                                    ? Icons.check_circle_rounded
-                                    : Icons.info_outline_rounded;
-                                final color = status?.ready == true
-                                    ? Colors.green.shade700
-                                    : Theme.of(context).colorScheme.onSurfaceVariant;
-                                return Row(
-                                  children: [
-                                    Icon(icon, size: 16, color: color),
-                                    const SizedBox(width: 6),
-                                    Expanded(
-                                      child: Text(
-                                        status?.message ?? 'Checking model...',
-                                        style: Theme.of(context)
-                                            .textTheme
-                                            .bodySmall
-                                            ?.copyWith(color: color),
-                                      ),
-                                    ),
-                                  ],
-                                );
-                              },
-                            ),
-                            const SizedBox(height: 10),
-                            Wrap(
-                              spacing: 8,
-                              runSpacing: 8,
-                              children: [
-                                OutlinedButton.icon(
-                                  onPressed: isPickingModel
-                                      ? null
-                                      : () async {
-                                          if (isPickingModel) return;
-                                          setDialogState(() => isPickingModel = true);
-                                          final messenger =
-                                              ScaffoldMessenger.of(context);
-                                          try {
-                                            final result =
-                                                await FilePicker.platform.pickFiles(
-                                              allowMultiple: false,
-                                              type: FileType.any,
-                                              withData: false,
-                                            );
-                                            final path =
-                                                result?.files.single.path;
-                                            if (path == null || path.isEmpty) {
-                                              return;
-                                            }
-                                            if (!ctx.mounted ||
-                                                !context.mounted) {
-                                              return;
-                                            }
-                                            await ref
-                                                .read(gemmaLocalModelPathProvider
-                                                    .notifier)
-                                                .setPath(path);
-                                            if (!ctx.mounted ||
-                                                !context.mounted) {
-                                              return;
-                                            }
-                                            // Refresh cached path and future so
-                                            // FutureBuilder re-checks the new model.
-                                            setDialogState(() {
-                                              gemmaLocalModelPath = path;
-                                              modelStatusFuture =
-                                                  OnDeviceAiService.checkModel(path);
-                                            });
-                                            messenger.showSnackBar(
-                                              SnackBar(
-                                                content: Text(
-                                                  'Model set: ${path.split('/').last.split('\\').last}',
-                                                ),
-                                              ),
-                                            );
-                                          } catch (e) {
-                                            if (!context.mounted) return;
-                                            // Ignore "already_active" — user tapped twice.
-                                            if (!e
-                                                .toString()
-                                                .contains('already_active')) {
-                                              messenger.showSnackBar(
-                                                SnackBar(
-                                                  content: Text(
-                                                    'Failed to pick model: $e',
-                                                  ),
-                                                ),
-                                              );
-                                            }
-                                          } finally {
-                                            if (ctx.mounted) {
-                                              setDialogState(
-                                                () => isPickingModel = false,
-                                              );
-                                            }
-                                          }
-                                        },
-                                  icon: const Icon(Icons.upload_file_rounded),
-                                  label: Text(gemmaLocalModelPath.trim().isEmpty
-                                      ? 'Import .litertlm model'
-                                      : 'Change model'),
-                                ),
-                                if (gemmaLocalModelPath.trim().isNotEmpty)
-                                  OutlinedButton.icon(
-                                    onPressed: () async {
-                                      await ref
-                                          .read(gemmaLocalModelPathProvider.notifier)
-                                          .clear();
-                                      if (!ctx.mounted || !context.mounted) return;
-                                      setDialogState(() {});
-                                    },
-                                    icon: const Icon(Icons.delete_outline_rounded),
-                                    label: const Text('Remove'),
-                                  ),
-                              ],
-                            ),
-                          ],
-                        ),
-                      ),
-                    ],
-                    // -- API Key input (Gemini / Groq) --
-                    if (selectedProvider == AiProvider.gemini) ...[
-                      const SizedBox(height: 16),
+                    if (selectedProvider == AiProvider.gemini)
                       TextField(
                         controller: geminiController,
                         obscureText: true,
@@ -710,8 +510,7 @@ class _SettingsTabState extends ConsumerState<SettingsTab> {
                           isDense: true,
                         ),
                       ),
-                    ] else if (selectedProvider == AiProvider.groq) ...[
-                      const SizedBox(height: 16),
+                    if (selectedProvider == AiProvider.groq)
                       TextField(
                         controller: groqController,
                         obscureText: true,
@@ -721,8 +520,156 @@ class _SettingsTabState extends ConsumerState<SettingsTab> {
                           isDense: true,
                         ),
                       ),
-                    ],
-                    const SizedBox(height: 16),
+
+                    const Divider(height: 28),
+
+                    // —— 隱私模式 ——
+                    SwitchListTile(
+                      contentPadding: EdgeInsets.zero,
+                      secondary: const Icon(Icons.shield_outlined),
+                      title: const Text('隱私模式'),
+                      subtitle: const Text('只用裝置本機 AI，資料不傳雲端'),
+                      value: ref.read(aiPrivacyModeProvider),
+                      onChanged: (v) async {
+                        await ref
+                            .read(aiPrivacyModeProvider.notifier)
+                            .setEnabled(v);
+                        setDialogState(() {});
+                      },
+                    ),
+
+                    // —— 進階：手動匯入（僅本機）——
+                    if (selectedProvider == AiProvider.gemma)
+                      Theme(
+                        data: Theme.of(
+                          context,
+                        ).copyWith(dividerColor: Colors.transparent),
+                        child: ExpansionTile(
+                          tilePadding: EdgeInsets.zero,
+                          childrenPadding: const EdgeInsets.only(bottom: 8),
+                          title: Text(
+                            '進階：手動匯入模型檔',
+                            style: Theme.of(context).textTheme.labelLarge,
+                          ),
+                          children: [
+                            Align(
+                              alignment: Alignment.centerLeft,
+                              child: Text(
+                                '若你有自己的 .litertlm / .task 檔可手動匯入；一般用上方下載即可。',
+                                style: Theme.of(context).textTheme.bodySmall
+                                    ?.copyWith(
+                                      color: Theme.of(
+                                        context,
+                                      ).colorScheme.onSurfaceVariant,
+                                    ),
+                              ),
+                            ),
+                            const SizedBox(height: 8),
+                            Align(
+                              alignment: Alignment.centerLeft,
+                              child: Wrap(
+                                spacing: 8,
+                                runSpacing: 8,
+                                children: [
+                                  OutlinedButton.icon(
+                                    onPressed: isPickingModel
+                                        ? null
+                                        : () async {
+                                            setDialogState(
+                                              () => isPickingModel = true,
+                                            );
+                                            final messenger =
+                                                ScaffoldMessenger.of(context);
+                                            try {
+                                              final result = await FilePicker
+                                                  .platform
+                                                  .pickFiles(
+                                                    allowMultiple: false,
+                                                    type: FileType.any,
+                                                    withData: false,
+                                                  );
+                                              final path =
+                                                  result?.files.single.path;
+                                              if (path == null ||
+                                                  path.isEmpty) {
+                                                return;
+                                              }
+                                              if (!ctx.mounted) return;
+                                              await ref
+                                                  .read(
+                                                    gemmaLocalModelPathProvider
+                                                        .notifier,
+                                                  )
+                                                  .setPath(path);
+                                              if (!ctx.mounted) return;
+                                              setDialogState(
+                                                () =>
+                                                    gemmaLocalModelPath = path,
+                                              );
+                                              messenger.showSnackBar(
+                                                SnackBar(
+                                                  content: Text(
+                                                    '已設定模型：${path.split('/').last}',
+                                                  ),
+                                                ),
+                                              );
+                                            } catch (e) {
+                                              if (!context.mounted) return;
+                                              if (!e.toString().contains(
+                                                'already_active',
+                                              )) {
+                                                messenger.showSnackBar(
+                                                  SnackBar(
+                                                    content: Text('匯入失敗：$e'),
+                                                  ),
+                                                );
+                                              }
+                                            } finally {
+                                              if (ctx.mounted) {
+                                                setDialogState(
+                                                  () => isPickingModel = false,
+                                                );
+                                              }
+                                            }
+                                          },
+                                    icon: const Icon(
+                                      Icons.upload_file_rounded,
+                                      size: 18,
+                                    ),
+                                    label: Text(
+                                      gemmaLocalModelPath.trim().isEmpty
+                                          ? '匯入檔案'
+                                          : '更換檔案',
+                                    ),
+                                  ),
+                                  if (gemmaLocalModelPath.trim().isNotEmpty)
+                                    OutlinedButton.icon(
+                                      onPressed: () async {
+                                        await ref
+                                            .read(
+                                              gemmaLocalModelPathProvider
+                                                  .notifier,
+                                            )
+                                            .clear();
+                                        if (!ctx.mounted) return;
+                                        setDialogState(
+                                          () => gemmaLocalModelPath = '',
+                                        );
+                                      },
+                                      icon: const Icon(
+                                        Icons.delete_outline_rounded,
+                                        size: 18,
+                                      ),
+                                      label: const Text('移除'),
+                                    ),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+
+                    const Divider(height: 28),
                     const TtsEnginePicker(),
                   ],
                 ),
