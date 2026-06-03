@@ -31,8 +31,10 @@ class AppConstants {
 
   // Home Screen Widgets
   static const String widgetAppGroupId = 'group.com.studyapp.recallapp';
-  static const String widgetAndroidDailyMission = 'DailyMissionWidgetProvider';
-  static const String widgetAndroidPressureBar = 'PressureBarWidgetProvider';
+  static const String widgetAndroidDailyMission =
+      'widgets.DailyMissionWidgetProvider';
+  static const String widgetAndroidPressureBar =
+      'widgets.PressureBarWidgetProvider';
   static const String widgetIosDailyMission = 'DailyMissionWidget';
   static const String widgetIosPressureBar = 'PressureBarWidget';
   static const String deepLinkScheme = 'recall';
