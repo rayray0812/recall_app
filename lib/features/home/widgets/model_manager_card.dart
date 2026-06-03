@@ -5,13 +5,15 @@ import 'package:recall_app/providers/ai_runtime_provider.dart';
 import 'package:recall_app/services/ai/ai_capability_service.dart';
 import 'package:recall_app/services/ai/ai_model_catalog.dart';
 
-/// Settings card that downloads the recommended on-device model for this
-/// device, replacing the old "manually import a .litertlm file" flow.
+/// Settings card that lists the available on-device models and lets the user
+/// download, switch between, and remove them — replacing the old "manually
+/// import a .litertlm file" flow.
 ///
-/// Picks the model via [ModelCatalog.recommended] (device-capability aware),
-/// streams it to disk with a progress bar, and points
-/// [gemmaLocalModelPathProvider] at the installed file so the existing local-AI
-/// providers and [localLlmEngineProvider] pick it up.
+/// The device-recommended model (via [ModelCatalog.recommended]) is badged
+/// "推薦", but every catalog model is selectable so the user can pick e.g.
+/// Qwen3 for Chinese over the larger default. Downloading or switching points
+/// [gemmaLocalModelPathProvider] at the chosen file so the local-AI providers
+/// and [localLlmEngineProvider] pick it up.
 class ModelManagerCard extends ConsumerStatefulWidget {
   const ModelManagerCard({super.key});
 
@@ -20,13 +22,32 @@ class ModelManagerCard extends ConsumerStatefulWidget {
 }
 
 class _ModelManagerCardState extends ConsumerState<ModelManagerCard> {
-  bool _downloading = false;
+  /// modelId currently downloading (null = none).
+  String? _downloadingId;
   double? _progress;
   String? _error;
 
+  /// modelId -> installed file path (null value = not installed).
+  Map<String, String?> _installed = {};
+
+  @override
+  void initState() {
+    super.initState();
+    _refreshInstalled();
+  }
+
+  Future<void> _refreshInstalled() async {
+    final manager = ref.read(modelManagerProvider);
+    final map = <String, String?>{};
+    for (final spec in ModelCatalog.all) {
+      map[spec.id] = await manager.installedPath(spec);
+    }
+    if (mounted) setState(() => _installed = map);
+  }
+
   Future<void> _download(AiModelSpec spec) async {
     setState(() {
-      _downloading = true;
+      _downloadingId = spec.id;
       _progress = null;
       _error = null;
     });
@@ -39,26 +60,43 @@ class _ModelManagerCardState extends ConsumerState<ModelManagerCard> {
         },
       );
       await ref.read(gemmaLocalModelPathProvider.notifier).setPath(path);
-      ref.invalidate(localLlmEngineProvider);
-      ref.invalidate(localModelReadyProvider);
-      if (mounted) setState(() => _downloading = false);
+      _invalidateEngine();
+      if (mounted) setState(() => _downloadingId = null);
+      await _refreshInstalled();
     } catch (e) {
       if (mounted) {
         setState(() {
-          _downloading = false;
+          _downloadingId = null;
           _error = '$e';
         });
       }
     }
   }
 
-  Future<void> _delete(AiModelSpec spec) async {
+  /// Make an already-installed model the active one for inference.
+  Future<void> _use(AiModelSpec spec) async {
+    final path = _installed[spec.id];
+    if (path == null) return;
+    await ref.read(gemmaLocalModelPathProvider.notifier).setPath(path);
+    _invalidateEngine();
+    if (mounted) setState(() {});
+  }
+
+  Future<void> _remove(AiModelSpec spec) async {
     final manager = ref.read(modelManagerProvider);
+    final path = _installed[spec.id];
     await manager.delete(spec);
-    await ref.read(gemmaLocalModelPathProvider.notifier).clear();
+    // If the removed model was the active one, clear the active path.
+    if (path != null && ref.read(gemmaLocalModelPathProvider) == path) {
+      await ref.read(gemmaLocalModelPathProvider.notifier).clear();
+    }
+    _invalidateEngine();
+    await _refreshInstalled();
+  }
+
+  void _invalidateEngine() {
     ref.invalidate(localLlmEngineProvider);
     ref.invalidate(localModelReadyProvider);
-    if (mounted) setState(() {});
   }
 
   String _sizeLabel(int mb) =>
@@ -67,7 +105,7 @@ class _ModelManagerCardState extends ConsumerState<ModelManagerCard> {
   @override
   Widget build(BuildContext context) {
     final capAsync = ref.watch(aiCapabilityProvider);
-    final installedPath = ref.watch(gemmaLocalModelPathProvider);
+    final activePath = ref.watch(gemmaLocalModelPathProvider);
 
     return capAsync.when(
       loading: () => const Padding(
@@ -76,127 +114,201 @@ class _ModelManagerCardState extends ConsumerState<ModelManagerCard> {
       ),
       error: (e, _) => _infoBox(context, 'AI capability check failed: $e'),
       data: (cap) {
-        final spec = ModelCatalog.recommended(cap);
-        if (spec == null) {
+        if (cap.platform == AiPlatform.ios) {
           return _infoBox(
             context,
-            cap.platform == AiPlatform.ios
-                ? 'iOS will use Apple’s built-in AI — no model download needed.'
-                : 'This device has limited memory; cloud AI will be used instead.',
+            'iOS will use Apple’s built-in AI — no model download needed.',
           );
         }
-        return _modelBox(context, cap, spec, installedPath.trim().isNotEmpty);
+        if (!cap.supportsLocalLlm) {
+          return _infoBox(
+            context,
+            'This device has limited memory; cloud AI will be used instead.',
+          );
+        }
+        final recommendedId = ModelCatalog.recommended(cap)?.id;
+        final theme = Theme.of(context);
+        return Container(
+          width: double.infinity,
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: theme.colorScheme.primaryContainer.withValues(alpha: 0.30),
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Icon(
+                    Icons.download_for_offline_outlined,
+                    size: 18,
+                    color: theme.colorScheme.primary,
+                  ),
+                  const SizedBox(width: 6),
+                  Expanded(
+                    child: Text(
+                      '本地模型（選一個下載）',
+                      style: theme.textTheme.labelLarge?.copyWith(
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              for (final spec in ModelCatalog.all)
+                _modelRow(
+                  context,
+                  spec,
+                  isRecommended: spec.id == recommendedId,
+                  activePath: activePath,
+                ),
+              if (_error != null)
+                Padding(
+                  padding: const EdgeInsets.only(top: 8),
+                  child: Text(
+                    _error!,
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: theme.colorScheme.error,
+                    ),
+                  ),
+                ),
+            ],
+          ),
+        );
       },
     );
   }
 
-  Widget _modelBox(
+  Widget _modelRow(
     BuildContext context,
-    AiCapability cap,
-    AiModelSpec spec,
-    bool installed,
-  ) {
+    AiModelSpec spec, {
+    required bool isRecommended,
+    required String activePath,
+  }) {
     final theme = Theme.of(context);
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: theme.colorScheme.primaryContainer.withValues(alpha: 0.35),
-        borderRadius: BorderRadius.circular(12),
-      ),
+    final installedPath = _installed[spec.id];
+    final installed = installedPath != null;
+    final isActive = installed && installedPath == activePath;
+    final isDownloading = _downloadingId == spec.id;
+
+    final tags = <String>[
+      _sizeLabel(spec.sizeMb),
+      if (spec.multimodal) '多模態',
+      if (spec.strongChinese) '中文',
+    ];
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 6),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Icon(
-                Icons.download_for_offline_outlined,
-                size: 18,
-                color: theme.colorScheme.primary,
-              ),
-              const SizedBox(width: 6),
               Expanded(
-                child: Text(
-                  'Recommended model',
-                  style: theme.textTheme.labelLarge?.copyWith(
-                    fontWeight: FontWeight.w700,
-                  ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Wrap(
+                      spacing: 6,
+                      crossAxisAlignment: WrapCrossAlignment.center,
+                      children: [
+                        Text(
+                          spec.displayName,
+                          style: theme.textTheme.bodyMedium?.copyWith(
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                        if (isRecommended) _badge(context, '推薦', primary: true),
+                        if (isActive) _badge(context, '使用中', primary: false),
+                      ],
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      tags.join(' · '),
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: theme.colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+                  ],
                 ),
               ),
+              const SizedBox(width: 8),
+              _action(spec, installed: installed, isActive: isActive, isDownloading: isDownloading),
             ],
           ),
-          const SizedBox(height: 4),
-          Text(
-            '${spec.displayName} · ${_sizeLabel(spec.sizeMb)}'
-            '${spec.multimodal ? ' · multimodal' : ''}',
-            style: theme.textTheme.bodySmall?.copyWith(
-              color: theme.colorScheme.onSurfaceVariant,
-            ),
-          ),
-          if (spec.note.isNotEmpty)
-            Padding(
-              padding: const EdgeInsets.only(top: 2),
-              child: Text(
-                spec.note,
-                style: theme.textTheme.bodySmall?.copyWith(
-                  color: theme.colorScheme.onSurfaceVariant,
-                ),
-              ),
-            ),
-          const SizedBox(height: 10),
-          if (_downloading) ...[
+          if (isDownloading) ...[
+            const SizedBox(height: 6),
             LinearProgressIndicator(value: _progress, minHeight: 4),
-            const SizedBox(height: 4),
+            const SizedBox(height: 2),
             Text(
               _progress == null
-                  ? 'Downloading…'
-                  : 'Downloading… ${(_progress! * 100).toStringAsFixed(0)}%',
+                  ? '下載中…'
+                  : '下載中… ${(_progress! * 100).toStringAsFixed(0)}%',
               style: theme.textTheme.bodySmall,
             ),
-          ] else if (installed)
-            Row(
-              children: [
-                Icon(
-                  Icons.check_circle_rounded,
-                  size: 16,
-                  color: Colors.green.shade700,
-                ),
-                const SizedBox(width: 6),
-                Expanded(
-                  child: Text(
-                    'Installed',
-                    style: theme.textTheme.bodySmall?.copyWith(
-                      color: Colors.green.shade700,
-                    ),
-                  ),
-                ),
-                TextButton.icon(
-                  onPressed: () => _delete(spec),
-                  icon: const Icon(Icons.delete_outline_rounded, size: 18),
-                  label: const Text('Remove'),
-                ),
-              ],
-            )
-          else
-            Align(
-              alignment: Alignment.centerLeft,
-              child: FilledButton.icon(
-                onPressed: () => _download(spec),
-                icon: const Icon(Icons.download_rounded, size: 18),
-                label: Text('Download (${_sizeLabel(spec.sizeMb)})'),
-              ),
-            ),
-          if (_error != null)
-            Padding(
-              padding: const EdgeInsets.only(top: 6),
-              child: Text(
-                _error!,
-                style: theme.textTheme.bodySmall?.copyWith(
-                  color: theme.colorScheme.error,
-                ),
-              ),
-            ),
+          ],
         ],
+      ),
+    );
+  }
+
+  Widget _action(
+    AiModelSpec spec, {
+    required bool installed,
+    required bool isActive,
+    required bool isDownloading,
+  }) {
+    if (isDownloading) {
+      return const SizedBox(
+        width: 24,
+        height: 24,
+        child: CircularProgressIndicator(strokeWidth: 2.4),
+      );
+    }
+    // Don't allow starting a second download while one is in flight.
+    final busy = _downloadingId != null;
+    if (!installed) {
+      return FilledButton.tonal(
+        onPressed: busy ? null : () => _download(spec),
+        child: Text('下載 ${_sizeLabel(spec.sizeMb)}'),
+      );
+    }
+    // Installed.
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        if (!isActive)
+          TextButton(
+            onPressed: busy ? null : () => _use(spec),
+            child: const Text('使用'),
+          ),
+        IconButton(
+          tooltip: '移除',
+          onPressed: busy ? null : () => _remove(spec),
+          icon: const Icon(Icons.delete_outline_rounded, size: 20),
+        ),
+      ],
+    );
+  }
+
+  Widget _badge(BuildContext context, String text, {required bool primary}) {
+    final theme = Theme.of(context);
+    final color = primary ? theme.colorScheme.primary : Colors.green.shade700;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.14),
+        borderRadius: BorderRadius.circular(6),
+      ),
+      child: Text(
+        text,
+        style: theme.textTheme.labelSmall?.copyWith(
+          color: color,
+          fontWeight: FontWeight.w700,
+        ),
       ),
     );
   }
