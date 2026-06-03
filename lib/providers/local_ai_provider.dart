@@ -15,6 +15,18 @@ final localHintAvailableProvider = Provider.autoDispose<AsyncValue<bool>>((ref) 
       .whenData((decision) => decision.isLocal);
 });
 
+/// Whether the L2 mnemonic affordance can run right now.
+///
+/// Mirrors [localHintAvailableProvider] but for the mnemonic task: true only
+/// when [AiRouter] routes it to a local engine. UI hides the button until this
+/// resolves to true.
+final localMnemonicAvailableProvider =
+    Provider.autoDispose<AsyncValue<bool>>((ref) {
+  return ref
+      .watch(aiRouteProvider(AiTaskType.mnemonic))
+      .whenData((decision) => decision.isLocal);
+});
+
 /// Argument for [reviewHintProvider].
 class ReviewHintRequest {
   final String cardId;

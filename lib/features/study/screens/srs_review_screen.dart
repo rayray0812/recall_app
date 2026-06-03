@@ -14,6 +14,7 @@ import 'package:recall_app/core/widgets/app_back_button.dart';
 import 'package:recall_app/features/study/services/voice_playback_service.dart';
 import 'package:recall_app/features/study/widgets/combo_indicator.dart';
 import 'package:recall_app/features/study/widgets/completion_celebrate_overlay.dart';
+import 'package:recall_app/features/study/widgets/mnemonic_button.dart';
 import 'package:recall_app/features/study/widgets/rating_buttons.dart';
 import 'package:recall_app/features/study/widgets/review_hint_button.dart';
 import 'package:recall_app/features/study/widgets/xp_toast.dart';
@@ -626,10 +627,20 @@ class _SrsReviewScreenState extends ConsumerState<SrsReviewScreen>
               offset: const Offset(0, -14),
               child: Padding(
                 padding: const EdgeInsets.fromLTRB(20, 0, 20, 8),
-                child: RatingButtons(
-                  intervals: intervals,
-                  onRating: _onRate,
-                  enabled: !_isSubmittingRating,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    MnemonicButton(
+                      cardId: item.card.id,
+                      term: item.card.term,
+                      definition: item.card.definition,
+                    ),
+                    RatingButtons(
+                      intervals: intervals,
+                      onRating: _onRate,
+                      enabled: !_isSubmittingRating,
+                    ),
+                  ],
                 ),
               ),
             )

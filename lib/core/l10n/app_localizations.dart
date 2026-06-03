@@ -328,6 +328,9 @@ class AppLocalizations {
   String get localHintCta => '';
   String get localHintGenerating => '';
   String get localHintUnavailable => '';
+  String get mnemonicCta => '';
+  String get mnemonicGenerating => '';
+  String get mnemonicUnavailable => '';
   String get ttsEngine => '';
   String get ttsCloudTts => '';
   String get ttsCloudTtsDesc => '';
@@ -1390,6 +1393,13 @@ class AppLocalizationsZh extends AppLocalizations {
   @override
   String get localHintUnavailable =>
       '\u672C\u6B21\u63D0\u793A\u751F\u6210\u5931\u6557\uFF0C\u8ACB\u91CD\u8A66';
+  @override
+  String get mnemonicCta => '\u53E3\u8A23';
+  @override
+  String get mnemonicGenerating => '\u60F3\u53E3\u8A23\u4E2D\u2026';
+  @override
+  String get mnemonicUnavailable =>
+      '\u53E3\u8A23\u751F\u6210\u5931\u6557\uFF0C\u8ACB\u91CD\u8A66';
   @override
   String get ttsEngine => '\u8A9E\u97F3\u5F15\u64CE';
   @override
@@ -2916,6 +2926,12 @@ class AppLocalizationsEn extends AppLocalizations {
   String get localHintGenerating => 'Local AI thinking…';
   @override
   String get localHintUnavailable => 'Hint generation failed, please retry';
+  @override
+  String get mnemonicCta => 'Mnemonic';
+  @override
+  String get mnemonicGenerating => 'Thinking of a mnemonic…';
+  @override
+  String get mnemonicUnavailable => 'Mnemonic generation failed, please retry';
   @override
   String get ttsEngine => 'Voice Engine';
   @override
