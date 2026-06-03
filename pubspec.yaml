@@ -1,4 +1,4 @@
-﻿name: recall_app
+name: recall_app
 description: "拾憶 Grasp - Open source flashcard learning app"
 publish_to: 'none'
 version: 1.0.0+1
@@ -88,6 +88,7 @@ dependencies:
 
   # Error monitoring
   sentry_flutter: ^8.11.0
+  background_downloader: ^9.5.5
 
 dev_dependencies:
   flutter_test:

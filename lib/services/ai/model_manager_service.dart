@@ -1,7 +1,7 @@
 import 'dart:io';
 
+import 'package:background_downloader/background_downloader.dart';
 import 'package:flutter/foundation.dart';
-import 'package:http/http.dart' as http;
 import 'package:path_provider/path_provider.dart';
 import 'package:recall_app/services/ai/ai_model_catalog.dart';
 
@@ -30,17 +30,27 @@ class ModelDownloadProgress {
 /// downloads the right model for the device on first use (WiFi recommended)
 /// and tracks it on disk. Models are NOT bundled in the app binary, keeping
 /// the install size small (see audit #12 in prelaunch-audit).
-class ModelManagerService {
-  ModelManagerService({http.Client? client})
-    : _client = client ?? http.Client();
+/// Subdirectory (under app-support) where downloaded models live.
+const _modelsSubdir = 'ai_models';
 
-  final http.Client _client;
+class ModelManagerService {
+  ModelManagerService() {
+    // Show a progress notification so the user can leave the screen / lock the
+    // phone during a multi-hundred-MB download (the native background task
+    // keeps running). Configuring twice is harmless.
+    FileDownloader().configureNotification(
+      running: const TaskNotification('下載 AI 模型', '{filename}  {progress}'),
+      complete: const TaskNotification('AI 模型已下載', '{filename}'),
+      error: const TaskNotification('模型下載失敗', '{filename}'),
+      progressBar: true,
+    );
+  }
 
   /// Directory where downloaded models live.
   @visibleForTesting
   Future<Directory> modelsDir() async {
     final base = await getApplicationSupportDirectory();
-    final dir = Directory('${base.path}/ai_models');
+    final dir = Directory('${base.path}/$_modelsSubdir');
     if (!await dir.exists()) {
       await dir.create(recursive: true);
     }
@@ -69,97 +79,48 @@ class ModelManagerService {
     return ModelInstallState.notInstalled;
   }
 
-  /// Stream a model to disk, reporting progress. Writes to a `.part` file and
-  /// atomically renames on success so a half-finished download is never seen
-  /// as ready.
-  ///
-  /// Large model files (hundreds of MB) over mobile networks frequently drop
-  /// mid-stream, so this retries up to [maxAttempts] times and RESUMES from the
-  /// bytes already on disk via an HTTP `Range` request — a dropped connection
-  /// continues instead of starting over. Always re-requests the canonical
-  /// resolve URL so Hugging Face issues a fresh (non-expired) signed CDN
-  /// redirect on each attempt. Returns the final installed path.
+  /// Download a model using the native background downloader, reporting
+  /// progress. Runs as an OS background task so it survives the screen locking
+  /// or the app being backgrounded, shows a progress notification, and resumes
+  /// / retries natively. Returns the final installed path on success.
   Future<String> download(
     AiModelSpec spec, {
     void Function(ModelDownloadProgress)? onProgress,
-    int maxAttempts = 6,
   }) async {
-    final file = await _fileFor(spec);
-    final tmp = File('${file.path}.part');
-    final fallbackTotal = spec.sizeMb * 1024 * 1024;
-
-    Object? lastError;
-    for (var attempt = 1; attempt <= maxAttempts; attempt++) {
-      var existing = await tmp.exists() ? await tmp.length() : 0;
-      try {
-        final request = http.Request('GET', Uri.parse(spec.url));
-        if (existing > 0) {
-          request.headers['range'] = 'bytes=$existing-';
-        }
-        final response = await _client.send(request);
-
-        final status = response.statusCode;
-        final bool append;
-        if (status == 206) {
-          append = true; // server honored Range → resume
-        } else if (status == 200) {
-          append = false; // server ignored Range → restart from scratch
-          existing = 0;
-        } else {
-          throw HttpException(
-            'Model download failed (HTTP $status)',
-            uri: Uri.parse(spec.url),
-          );
-        }
-
-        // contentLength is the REMAINING bytes; total = on-disk + remaining.
-        final remaining = response.contentLength;
-        final total = remaining != null ? existing + remaining : fallbackTotal;
-
-        var received = existing;
-        var lastEmitted = existing;
-        // Throttle progress: emit ~200 times total (and never more often than a
-        // sizeable byte step). Calling onProgress on every network chunk fires
-        // thousands of setState/rebuilds that jank the UI and slow the drain.
-        final emitStep = (total ~/ 200).clamp(256 * 1024, 8 * 1024 * 1024);
-        final sink = tmp.openWrite(
-          mode: append ? FileMode.append : FileMode.write,
-        );
-        try {
-          await for (final chunk in response.stream) {
-            received += chunk.length;
-            sink.add(chunk);
-            if (received - lastEmitted >= emitStep) {
-              lastEmitted = received;
-              onProgress?.call(
-                ModelDownloadProgress(
-                  receivedBytes: received,
-                  totalBytes: total,
-                ),
-              );
-            }
-          }
-          await sink.flush();
-          onProgress?.call(
-            ModelDownloadProgress(receivedBytes: received, totalBytes: total),
-          );
-        } finally {
-          await sink.close();
-        }
-
-        await tmp.rename(file.path);
-        return file.path;
-      } catch (e) {
-        lastError = e;
-        // Keep the .part file so the next attempt resumes where we stopped.
-        if (attempt < maxAttempts) {
-          await Future<void>.delayed(Duration(seconds: 2 * attempt));
-        }
-      }
-    }
-    throw Exception(
-      'Model download failed after $maxAttempts attempts: $lastError',
+    final total = spec.sizeMb * 1024 * 1024;
+    final task = DownloadTask(
+      url: spec.url,
+      filename: spec.fileName,
+      directory: _modelsSubdir,
+      baseDirectory: BaseDirectory.applicationSupport,
+      updates: Updates.statusAndProgress,
+      retries: 5,
+      allowPause: true,
     );
+
+    final result = await FileDownloader().download(
+      task,
+      onProgress: (progress) {
+        // progress is 0.0–1.0, or negative when indeterminate/finished.
+        if (progress >= 0) {
+          onProgress?.call(
+            ModelDownloadProgress(
+              receivedBytes: (progress * total).round(),
+              totalBytes: total,
+            ),
+          );
+        }
+      },
+    );
+
+    if (result.status != TaskStatus.complete) {
+      final ex = result.exception;
+      throw Exception(
+        'Model download ${result.status.name}'
+        '${ex != null ? ': ${ex.description}' : ''}',
+      );
+    }
+    return task.filePath();
   }
 
   /// Remove an installed model (and any partial download) to free space.
