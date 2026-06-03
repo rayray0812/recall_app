@@ -47,7 +47,8 @@ class AiRouter {
       // Short, high-frequency, privacy-sensitive → always local.
       AiTaskType.reviewHint ||
       AiTaskType.mnemonic ||
-      AiTaskType.confusionDiagnosis => AiTaskTier.localOnly,
+      AiTaskType.confusionDiagnosis ||
+      AiTaskType.exampleSentence => AiTaskTier.localOnly,
       // Medium tasks: prefer local, cloud as fallback.
       AiTaskType.photoImport ||
       AiTaskType.speakingScore => AiTaskTier.localPreferred,

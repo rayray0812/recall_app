@@ -5,10 +5,11 @@ enum AiTaskType {
   photoImport,
   conversationTurn,
   speakingScore,
-  // Local-AI tasks (Gemma on-device):
+  // Local-AI tasks (on-device):
   reviewHint, // L1
   mnemonic, // L2
   confusionDiagnosis, // L3
+  exampleSentence, // example-sentence generation for a vocab card
 }
 
 /// Lifecycle state of an AI operation.

@@ -22,6 +22,7 @@ class LocalAiService {
   static const int _hintMaxTokens = 96;
   static const int _mnemonicMaxTokens = 96;
   static const int _confusionMaxTokens = 160;
+  static const int _exampleMaxTokens = 80;
 
   /// L1: Generate a one-sentence hint that points toward [term] without
   /// revealing [definition] directly.
@@ -106,6 +107,32 @@ class LocalAiService {
     );
   }
 
+  /// Generate one natural example sentence that uses [term], suitable for a
+  /// high-school learner. Used to fill a card's example-sentence field.
+  static Future<String?> generateExampleSentence({
+    required LocalLlmEngine engine,
+    required String term,
+    required String definition,
+  }) async {
+    return _runWithAnalytics(
+      taskType: AiTaskType.exampleSentence,
+      engine: engine,
+      operation: () async {
+        final prompt = buildExampleSentencePrompt(
+          term: term,
+          definition: definition,
+        );
+        final raw = await engine.generate(
+          prompt: prompt,
+          maxTokens: _exampleMaxTokens,
+          temperature: 0.7,
+          topK: 40,
+        );
+        return cleanSingleSentence(raw);
+      },
+    );
+  }
+
   // —— Prompt builders (visible for testing) ——
 
   static String buildReviewHintPrompt({
@@ -156,6 +183,23 @@ class LocalAiService {
 每句不超過 25 字，請直接回答：''';
   }
 
+  static String buildExampleSentencePrompt({
+    required String term,
+    required String definition,
+  }) {
+    return '''你是英語學習助教。用單字 "$term" 造一個自然、簡單的例句，適合高中生理解。
+
+單字：$term
+意思：$definition
+
+要求：
+- 只輸出一句例句，句子裡必須包含 "$term"
+- 句子簡短、口語、貼近生活
+- 不要附中文翻譯，也不要解釋
+
+例句：''';
+  }
+
   // —— Output cleaners (visible for testing) ——
 
   /// Trim model output to the first non-empty sentence.
@@ -165,7 +209,14 @@ class LocalAiService {
     if (text.isEmpty) return '';
 
     // Strip common Chinese labels the model may echo back
-    for (final label in const ['提示：', '口訣：', 'Hint:', 'Mnemonic:']) {
+    for (final label in const [
+      '提示：',
+      '口訣：',
+      '例句：',
+      'Hint:',
+      'Mnemonic:',
+      'Example:',
+    ]) {
       if (text.startsWith(label)) {
         text = text.substring(label.length).trim();
       }

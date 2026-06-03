@@ -344,6 +344,16 @@ void main() {
       expect(prompt, contains('正確'));
       expect(prompt, contains('誤選'));
     });
+
+    test('buildExampleSentencePrompt requires the term in the sentence', () {
+      final prompt = LocalAiService.buildExampleSentencePrompt(
+        term: 'resilient',
+        definition: '有韌性的',
+      );
+      expect(prompt, contains('resilient'));
+      expect(prompt, contains('例句'));
+      expect(prompt, contains('不要附中文翻譯'));
+    });
   });
 
   group('LocalAiService cleaners', () {
@@ -358,6 +368,17 @@ void main() {
       expect(
         LocalAiService.cleanSingleSentence('Hint: think of a butterfly'),
         'think of a butterfly',
+      );
+    });
+
+    test('cleanSingleSentence strips 例句/Example labels', () {
+      expect(
+        LocalAiService.cleanSingleSentence('例句：She is very resilient.'),
+        'She is very resilient.',
+      );
+      expect(
+        LocalAiService.cleanSingleSentence('Example: I feel happy today.'),
+        'I feel happy today.',
       );
     });
 

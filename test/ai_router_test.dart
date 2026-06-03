@@ -105,11 +105,15 @@ void main() {
   });
 
   group('AiRouter.tierFor', () {
-    test('hints/mnemonic/confusion are localOnly', () {
+    test('hints/mnemonic/confusion/example are localOnly', () {
       expect(AiRouter.tierFor(AiTaskType.reviewHint), AiTaskTier.localOnly);
       expect(AiRouter.tierFor(AiTaskType.mnemonic), AiTaskTier.localOnly);
       expect(
         AiRouter.tierFor(AiTaskType.confusionDiagnosis),
+        AiTaskTier.localOnly,
+      );
+      expect(
+        AiRouter.tierFor(AiTaskType.exampleSentence),
         AiTaskTier.localOnly,
       );
     });

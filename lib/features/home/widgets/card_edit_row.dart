@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:recall_app/core/l10n/app_localizations.dart';
 import 'package:recall_app/core/widgets/adaptive_glass_card.dart';
+import 'package:recall_app/features/home/widgets/ai_example_button.dart';
 import 'package:recall_app/features/home/widgets/tag_chips.dart';
 
 class CardEditRow extends StatelessWidget {
@@ -191,6 +192,14 @@ class CardEditRow extends StatelessWidget {
                 ),
                 textInputAction: TextInputAction.next,
                 maxLines: null,
+              ),
+            ),
+            Align(
+              alignment: Alignment.centerLeft,
+              child: AiExampleButton(
+                termController: termController,
+                definitionController: definitionController,
+                exampleSentenceController: exampleSentenceController!,
               ),
             ),
           ],
