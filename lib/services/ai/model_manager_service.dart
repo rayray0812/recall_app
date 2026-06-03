@@ -117,6 +117,11 @@ class ModelManagerService {
         final total = remaining != null ? existing + remaining : fallbackTotal;
 
         var received = existing;
+        var lastEmitted = existing;
+        // Throttle progress: emit ~200 times total (and never more often than a
+        // sizeable byte step). Calling onProgress on every network chunk fires
+        // thousands of setState/rebuilds that jank the UI and slow the drain.
+        final emitStep = (total ~/ 200).clamp(256 * 1024, 8 * 1024 * 1024);
         final sink = tmp.openWrite(
           mode: append ? FileMode.append : FileMode.write,
         );
@@ -124,11 +129,20 @@ class ModelManagerService {
           await for (final chunk in response.stream) {
             received += chunk.length;
             sink.add(chunk);
-            onProgress?.call(
-              ModelDownloadProgress(receivedBytes: received, totalBytes: total),
-            );
+            if (received - lastEmitted >= emitStep) {
+              lastEmitted = received;
+              onProgress?.call(
+                ModelDownloadProgress(
+                  receivedBytes: received,
+                  totalBytes: total,
+                ),
+              );
+            }
           }
           await sink.flush();
+          onProgress?.call(
+            ModelDownloadProgress(receivedBytes: received, totalBytes: total),
+          );
         } finally {
           await sink.close();
         }
