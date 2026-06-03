@@ -77,10 +77,11 @@ android {
 dependencies {
     coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.5")
     implementation("com.google.mlkit:text-recognition-chinese:16.0.1")
-    implementation("com.google.mediapipe:tasks-genai:0.10.27")
+    // On-device LLM via LiteRT-LM (replaces the deprecated MediaPipe
+    // tasks-genai LLM Inference API). Runs Gemma 3/3n/4 + Qwen on one engine.
+    implementation("com.google.ai.edge.litertlm:litertlm-android:0.12.0")
 }
 
 flutter {
     source = "../.."
 }
-

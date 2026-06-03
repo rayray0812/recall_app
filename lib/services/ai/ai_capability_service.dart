@@ -12,10 +12,10 @@ enum ModelTier {
   /// No on-device LLM (too little RAM, unsupported platform).
   none,
 
-  /// ~2B-class model (Gemma 3n E2B, Qwen 2B). Needs ~3GB+ RAM.
+  /// Tiny local model (for example Qwen3 0.6B). Needs ~3GB+ RAM.
   tiny,
 
-  /// ~4B-class model (Gemma 3n E4B, Qwen3 4B). Needs ~6GB+ RAM.
+  /// Standard local model (for example Gemma 4 E2B). Needs ~6GB+ RAM.
   standard,
 }
 
@@ -81,7 +81,9 @@ class AiCapability {
 class AiCapabilityService {
   const AiCapabilityService();
 
-  static const MethodChannel _channel = MethodChannel('recall_app/on_device_ai');
+  static const MethodChannel _channel = MethodChannel(
+    'recall_app/on_device_ai',
+  );
 
   Future<AiCapability> detect() async {
     final platform = currentPlatform();

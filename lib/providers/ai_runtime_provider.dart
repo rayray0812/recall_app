@@ -93,7 +93,7 @@ final localLlmEngineProvider = FutureProvider<LocalLlmEngine>((ref) async {
       path = ref.watch(gemmaLocalModelPathProvider);
     }
     if (path.trim().isNotEmpty) {
-      return AndroidMediaPipeEngine(modelPath: path);
+      return AndroidLiteRtLmEngine(modelPath: path);
     }
   }
 

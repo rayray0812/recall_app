@@ -11,20 +11,23 @@ void main() {
         LocalLlmBackend.appleFoundationModels,
       );
       expect(
-        AndroidMediaPipeEngine(modelPath: '/tmp/m.litertlm').backend,
-        LocalLlmBackend.androidMediaPipe,
+        AndroidLiteRtLmEngine(modelPath: '/tmp/m.litertlm').backend,
+        LocalLlmBackend.androidLiteRtLm,
       );
       expect(const NullLocalLlmEngine().backend, LocalLlmBackend.none);
     });
 
-    test('NullLocalLlmEngine is never available and yields empty output', () async {
-      const engine = NullLocalLlmEngine();
-      expect(await engine.isAvailable(), isFalse);
-      expect(await engine.generate(prompt: 'hi'), isEmpty);
-    });
+    test(
+      'NullLocalLlmEngine is never available and yields empty output',
+      () async {
+        const engine = NullLocalLlmEngine();
+        expect(await engine.isAvailable(), isFalse);
+        expect(await engine.generate(prompt: 'hi'), isEmpty);
+      },
+    );
 
-    test('AndroidMediaPipeEngine with empty path is unavailable', () async {
-      final engine = AndroidMediaPipeEngine(modelPath: '   ');
+    test('AndroidLiteRtLmEngine with empty path is unavailable', () async {
+      final engine = AndroidLiteRtLmEngine(modelPath: '   ');
       expect(await engine.isAvailable(), isFalse);
     });
 

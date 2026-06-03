@@ -2,12 +2,12 @@ import 'package:flutter/services.dart';
 import 'package:recall_app/services/on_device_ai_service.dart';
 
 /// Which on-device inference backend an engine uses.
-enum LocalLlmBackend { androidMediaPipe, appleFoundationModels, none }
+enum LocalLlmBackend { androidLiteRtLm, appleFoundationModels, none }
 
 /// Abstraction over an on-device LLM backend.
 ///
 /// Lets the rest of the app run local inference without knowing whether it is
-/// served by Android MediaPipe (a downloaded Gemma/Qwen model) or Apple's
+/// served by Android LiteRT-LM (a downloaded Gemma/Qwen model) or Apple's
 /// Foundation Models framework (an OS-provided model on iOS 26+). [AiRouter]
 /// decides which concrete engine to use for a given task.
 abstract class LocalLlmEngine {
@@ -29,18 +29,18 @@ abstract class LocalLlmEngine {
   Future<void> dispose();
 }
 
-/// Android engine backed by MediaPipe `LlmInference` via [OnDeviceAiService].
+/// Android engine backed by LiteRT-LM via [OnDeviceAiService].
 ///
 /// Wraps the existing MethodChannel bridge so the higher layers depend on the
 /// [LocalLlmEngine] interface rather than the static service directly.
-class AndroidMediaPipeEngine implements LocalLlmEngine {
-  AndroidMediaPipeEngine({required this.modelPath});
+class AndroidLiteRtLmEngine implements LocalLlmEngine {
+  AndroidLiteRtLmEngine({required this.modelPath});
 
   /// Absolute path to the downloaded `.litertlm` / `.task` model file.
   final String modelPath;
 
   @override
-  LocalLlmBackend get backend => LocalLlmBackend.androidMediaPipe;
+  LocalLlmBackend get backend => LocalLlmBackend.androidLiteRtLm;
 
   @override
   Future<bool> isAvailable() async {
@@ -79,7 +79,9 @@ class AndroidMediaPipeEngine implements LocalLlmEngine {
 class AppleFoundationModelsEngine implements LocalLlmEngine {
   const AppleFoundationModelsEngine();
 
-  static const MethodChannel _channel = MethodChannel('recall_app/on_device_ai');
+  static const MethodChannel _channel = MethodChannel(
+    'recall_app/on_device_ai',
+  );
 
   @override
   LocalLlmBackend get backend => LocalLlmBackend.appleFoundationModels;

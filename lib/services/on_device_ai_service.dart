@@ -7,7 +7,11 @@ import 'package:recall_app/services/ocr_service.dart';
 /// Status of a local model file.
 @immutable
 class LocalModelStatus {
-  const LocalModelStatus({required this.ready, required this.message, this.sizeMb = 0});
+  const LocalModelStatus({
+    required this.ready,
+    required this.message,
+    this.sizeMb = 0,
+  });
 
   final bool ready;
   final String message;
@@ -22,17 +26,18 @@ class LocalModelStatus {
   }
 }
 
-/// Bridge to Android MediaPipe LlmInference via MethodChannel.
+/// Bridge to Android LiteRT-LM via MethodChannel.
 ///
-/// Optimized for small on-device models (Gemma 2B/3B):
+/// Optimized for small on-device models (Gemma/Qwen LiteRT-LM files):
 /// - Simple, few-shot prompts instead of complex instructions
 /// - Robust parser that recovers from malformed JSON
 /// - OCR text-only input (no spatial coordinates for simple cases)
 class OnDeviceAiService {
   OnDeviceAiService._();
 
-  static const MethodChannel _channel =
-      MethodChannel('recall_app/on_device_ai');
+  static const MethodChannel _channel = MethodChannel(
+    'recall_app/on_device_ai',
+  );
 
   /// Check if a model file exists and is usable.
   static Future<LocalModelStatus> checkModel(String modelPath) async {
@@ -42,7 +47,10 @@ class OnDeviceAiService {
         {'modelPath': modelPath},
       );
       if (raw == null) {
-        return const LocalModelStatus(ready: false, message: 'No response from platform.');
+        return const LocalModelStatus(
+          ready: false,
+          message: 'No response from platform.',
+        );
       }
       return LocalModelStatus.fromMap(raw);
     } on MissingPluginException {
@@ -341,7 +349,7 @@ Output:
 
   /// Parse raw output from a small local model.
   ///
-  /// Small models (Gemma 2B/3B) often produce:
+  /// Small local models often produce:
   /// - Truncated JSON (missing closing brackets)
   /// - Extra text before/after the JSON
   /// - Missing quotes or trailing commas
@@ -480,7 +488,9 @@ Output:
 
     for (final line in lines) {
       final trimmed = line.trim();
-      if (trimmed.isEmpty || trimmed.startsWith('[') || trimmed.startsWith('{')) {
+      if (trimmed.isEmpty ||
+          trimmed.startsWith('[') ||
+          trimmed.startsWith('{')) {
         continue;
       }
 

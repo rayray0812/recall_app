@@ -6,9 +6,8 @@ import 'package:recall_app/services/ai_task.dart';
 
 /// Local-AI assistant service for low-latency, single-sentence tasks.
 ///
-/// Backed by a [LocalLlmEngine] (Android MediaPipe today, Apple Foundation
-/// Models on iOS in Phase C2), so it is agnostic to which on-device backend
-/// runs the inference.
+/// Backed by a [LocalLlmEngine] (Android LiteRT-LM or Apple Foundation Models),
+/// so it is agnostic to which on-device backend runs the inference.
 /// Used for high-frequency UX moments where cloud latency is unacceptable:
 /// - L1: review hints during SRS flip
 /// - L2: mnemonic generation
@@ -27,7 +26,7 @@ class LocalAiService {
   /// L1: Generate a one-sentence hint that points toward [term] without
   /// revealing [definition] directly.
   ///
-  /// Latency target: < 500ms on Gemma 2B (single short sentence).
+  /// Latency target: < 500ms on small local models (single short sentence).
   static Future<String?> generateReviewHint({
     required LocalLlmEngine engine,
     required String term,
@@ -65,10 +64,7 @@ class LocalAiService {
       taskType: AiTaskType.mnemonic,
       engine: engine,
       operation: () async {
-        final prompt = buildMnemonicPrompt(
-          term: term,
-          definition: definition,
-        );
+        final prompt = buildMnemonicPrompt(term: term, definition: definition);
         final raw = await engine.generate(
           prompt: prompt,
           maxTokens: _mnemonicMaxTokens,

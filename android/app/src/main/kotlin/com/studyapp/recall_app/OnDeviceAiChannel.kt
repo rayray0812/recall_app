@@ -2,15 +2,17 @@ package com.studyapp.recall_app
 
 import android.os.Handler
 import android.os.Looper
-import com.google.mediapipe.tasks.genai.llminference.LlmInference
-import com.google.mediapipe.tasks.genai.llminference.LlmInferenceSession
+import com.google.ai.edge.litertlm.Backend
+import com.google.ai.edge.litertlm.Content
+import com.google.ai.edge.litertlm.ConversationConfig
+import com.google.ai.edge.litertlm.Engine
+import com.google.ai.edge.litertlm.EngineConfig
+import com.google.ai.edge.litertlm.SamplerConfig
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
 import java.io.File
 import java.util.concurrent.Executors
-import java.util.concurrent.CountDownLatch
-import java.util.concurrent.TimeUnit
 
 class OnDeviceAiChannel {
     companion object {
@@ -21,7 +23,10 @@ class OnDeviceAiChannel {
 
         lateinit var appContext: android.content.Context
 
-        private var cachedEngine: LlmInference? = null
+        // Engine init is expensive (~10s) so we cache it per model path and only
+        // create a cheap Conversation per inference. Switching model path
+        // re-initializes.
+        private var cachedEngine: Engine? = null
         private var cachedModelPath: String? = null
 
         fun register(flutterEngine: FlutterEngine) {
@@ -33,9 +38,33 @@ class OnDeviceAiChannel {
                     "checkModel" -> handleCheckModel(call, result)
                     "runInference" -> handleRunInference(call, result)
                     "unloadModel" -> handleUnloadModel(result)
+                    "totalRamMb" -> handleTotalRamMb(result)
                     else -> result.notImplemented()
                 }
             }
+        }
+
+        // Lazily create + cache a LiteRT-LM Engine for [modelPath]. Must be
+        // called on [executor] (initialize() blocks for several seconds).
+        private fun ensureEngine(modelPath: String): Engine {
+            val existing = cachedEngine
+            if (existing != null && cachedModelPath == modelPath) {
+                return existing
+            }
+            releaseEngine()
+
+            val config = EngineConfig(
+                modelPath = modelPath,
+                // CPU is the safest default across Android devices. GPU can be
+                // added later after per-device compatibility checks.
+                backend = Backend.CPU(),
+                cacheDir = appContext.cacheDir.path,
+            )
+            val engine = Engine(config)
+            engine.initialize()
+            cachedEngine = engine
+            cachedModelPath = modelPath
+            return engine
         }
 
         private fun handleCheckModel(call: MethodCall, result: MethodChannel.Result) {
@@ -59,15 +88,9 @@ class OnDeviceAiChannel {
                     }
                     val sizeMb = file.length() / (1024 * 1024)
 
-                    // Actually try to load the model to verify it is compatible
-                    // with MediaPipe LlmInference (not just that the file exists).
-                    val options = LlmInference.LlmInferenceOptions.builder()
-                        .setModelPath(modelPath)
-                        .setMaxTokens(64)
-                        .setMaxTopK(1)
-                        .build()
-                    val testEngine = LlmInference.createFromOptions(appContext, options)
-                    testEngine.close()
+                    // Actually load the model to confirm it is a valid LiteRT-LM
+                    // model (not just that the file exists). Cached for reuse.
+                    ensureEngine(modelPath)
 
                     postSuccess(result, mapOf(
                         "ready" to true,
@@ -75,6 +98,7 @@ class OnDeviceAiChannel {
                         "sizeMb" to sizeMb
                     ))
                 } catch (t: Throwable) {
+                    releaseEngine()
                     postSuccess(result, mapOf(
                         "ready" to false,
                         "message" to "Model load failed: ${t.message}"
@@ -86,10 +110,14 @@ class OnDeviceAiChannel {
         private fun handleRunInference(call: MethodCall, result: MethodChannel.Result) {
             val modelPath = call.argument<String>("modelPath").orEmpty().trim()
             val prompt = call.argument<String>("prompt").orEmpty()
+            // LiteRT-LM 0.12.0 does not expose a max output token setting on
+            // ConversationConfig; keep reading the channel value for API
+            // compatibility with the Dart engine contract.
+            @Suppress("UNUSED_VARIABLE")
             val maxTokens = call.argument<Int>("maxTokens") ?: 2048
-            // temperature=0 → greedy decoding → deterministic JSON output.
-            // topK=1 forces the single most likely token at each step.
-            val temperature = call.argument<Double>("temperature")?.toFloat() ?: 0.0f
+            // temperature=0 → greedy/deterministic (best for our structured
+            // JSON extraction); topK=1 forces the single most likely token.
+            val temperature = call.argument<Double>("temperature") ?: 0.0
             val topK = (call.argument<Int>("topK") ?: 1).coerceAtLeast(1)
 
             executor.execute {
@@ -103,69 +131,27 @@ class OnDeviceAiChannel {
                         return@execute
                     }
 
-                    // Create a fresh engine each time to avoid the MediaPipe
-                    // "Packet timestamp mismatch" crash that occurs when reusing
-                    // an LlmInference instance for multiple generateResponse calls.
-                    releaseEngine()
+                    val engine = ensureEngine(modelPath)
 
-                    val options = LlmInference.LlmInferenceOptions.builder()
-                        .setModelPath(modelPath)
-                        .setMaxTokens(maxTokens)
-                        .setMaxTopK(topK)
-                        .build()
+                    val sampler = SamplerConfig(
+                        topK = topK,
+                        topP = 1.0,
+                        temperature = temperature,
+                    )
+                    val conversation = engine.createConversation(
+                        ConversationConfig(samplerConfig = sampler)
+                    )
 
-                    val engine = LlmInference.createFromOptions(appContext, options)
-                    cachedEngine = engine
-                    cachedModelPath = modelPath
-
-                    val sessionOptions = LlmInferenceSession.LlmInferenceSessionOptions.builder()
-                        .setTemperature(temperature)
-                        .setTopK(topK)
-                        .setTopP(1.0f)
-                        .build()
-                    val session = LlmInferenceSession.createFromOptions(engine, sessionOptions)
-                    session.addQueryChunk(prompt)
-
-                    // Use async streaming API to collect the full response.
-                    val sb = StringBuilder()
-                    val latch = CountDownLatch(1)
-                    var streamError: Throwable? = null
-
-                    session.generateResponseAsync { partialResult, done ->
-                        try {
-                            if (partialResult != null) {
-                                sb.append(partialResult)
-                            }
-                            if (done) {
-                                latch.countDown()
-                            }
-                        } catch (t: Throwable) {
-                            streamError = t
-                            latch.countDown()
-                        }
+                    val response = try {
+                        extractText(conversation.sendMessage(prompt)).trim()
+                    } finally {
+                        conversation.close()
                     }
 
-                    if (!latch.await(120, TimeUnit.SECONDS)) {
-                        closeSession(session)
-                        releaseEngine()
-                        postError(result, "timeout", "Inference timed out after 120 seconds.", null)
-                        return@execute
-                    }
-
-                    // Release engine after each inference to prevent timestamp issues
-                    closeSession(session)
-                    releaseEngine()
-
-                    if (streamError != null) {
-                        throw streamError!!
-                    }
-
-                    val response = sb.toString().trim()
                     if (response.isEmpty()) {
                         postError(result, "empty_response", "Model returned empty response.", null)
                         return@execute
                     }
-
                     postSuccess(result, response)
                 } catch (t: Throwable) {
                     releaseEngine()
@@ -181,6 +167,27 @@ class OnDeviceAiChannel {
             }
         }
 
+        // Reports total physical RAM (MB) so the Dart AiCapabilityService can
+        // pick the right model tier (Gemma 4 E2B vs Qwen3 0.6B vs fallback).
+        private fun handleTotalRamMb(result: MethodChannel.Result) {
+            try {
+                val am = appContext.getSystemService(
+                    android.content.Context.ACTIVITY_SERVICE
+                ) as android.app.ActivityManager
+                val memInfo = android.app.ActivityManager.MemoryInfo()
+                am.getMemoryInfo(memInfo)
+                val totalMb = (memInfo.totalMem / (1024 * 1024)).toInt()
+                postSuccess(result, totalMb)
+            } catch (t: Throwable) {
+                postError(
+                    result,
+                    "ram_query_failed",
+                    t.message ?: t.javaClass.simpleName,
+                    null
+                )
+            }
+        }
+
         private fun releaseEngine() {
             try {
                 cachedEngine?.close()
@@ -189,10 +196,10 @@ class OnDeviceAiChannel {
             cachedModelPath = null
         }
 
-        private fun closeSession(session: LlmInferenceSession) {
-            try {
-                session.close()
-            } catch (_: Throwable) {}
+        private fun extractText(message: com.google.ai.edge.litertlm.Message): String {
+            return message.contents.contents
+                .filterIsInstance<Content.Text>()
+                .joinToString(separator = "") { it.text }
         }
 
         private fun postSuccess(result: MethodChannel.Result, value: Any) {

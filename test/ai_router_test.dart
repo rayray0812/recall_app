@@ -43,10 +43,13 @@ void main() {
       expect(cap.supportsLocalLlm, isFalse);
     });
 
-    test('Android unknown RAM falls back to tiny (conservative but usable)', () {
-      final cap = AiCapability.resolve(platform: AiPlatform.android);
-      expect(cap.recommendedTier, ModelTier.tiny);
-    });
+    test(
+      'Android unknown RAM falls back to tiny (conservative but usable)',
+      () {
+        final cap = AiCapability.resolve(platform: AiPlatform.android);
+        expect(cap.recommendedTier, ModelTier.tiny);
+      },
+    );
 
     test('web has no local LLM', () {
       final cap = AiCapability.resolve(platform: AiPlatform.web);
@@ -55,20 +58,20 @@ void main() {
   });
 
   group('ModelCatalog.recommended', () {
-    test('standard tier device → Gemma 3n E4B', () {
+    test('standard tier device → Gemma 4 E2B', () {
       final cap = AiCapability.resolve(
         platform: AiPlatform.android,
         totalRamMb: 8000,
       );
-      expect(ModelCatalog.recommended(cap), ModelCatalog.gemma3nE4b);
+      expect(ModelCatalog.recommended(cap), ModelCatalog.gemma4E2b);
     });
 
-    test('tiny tier device → Gemma 3n E2B', () {
+    test('tiny tier device → Qwen3 0.6B', () {
       final cap = AiCapability.resolve(
         platform: AiPlatform.android,
         totalRamMb: 4000,
       );
-      expect(ModelCatalog.recommended(cap), ModelCatalog.gemma3nE2b);
+      expect(ModelCatalog.recommended(cap), ModelCatalog.qwen3_06b);
     });
 
     test('low-RAM Android → no recommendation', () {
@@ -88,9 +91,16 @@ void main() {
     });
 
     test('byId + fileName are stable', () {
-      expect(ModelCatalog.byId('gemma-3n-e2b-it'), ModelCatalog.gemma3nE2b);
-      expect(ModelCatalog.gemma3nE2b.fileName, 'gemma-3n-e2b-it.litertlm');
+      expect(ModelCatalog.byId('gemma-4-E2B-it'), ModelCatalog.gemma4E2b);
+      expect(ModelCatalog.gemma4E2b.fileName, 'gemma-4-E2B-it.litertlm');
       expect(ModelCatalog.byId('does-not-exist'), isNull);
+    });
+
+    test('catalog models use ungated, direct HF download URLs', () {
+      for (final m in ModelCatalog.all) {
+        expect(m.url, startsWith('https://huggingface.co/litert-community/'));
+        expect(m.url, contains('/resolve/main/'));
+      }
     });
   });
 
@@ -105,7 +115,10 @@ void main() {
     });
 
     test('photo import + speaking score are localPreferred', () {
-      expect(AiRouter.tierFor(AiTaskType.photoImport), AiTaskTier.localPreferred);
+      expect(
+        AiRouter.tierFor(AiTaskType.photoImport),
+        AiTaskTier.localPreferred,
+      );
       expect(
         AiRouter.tierFor(AiTaskType.speakingScore),
         AiTaskTier.localPreferred,
