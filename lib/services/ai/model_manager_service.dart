@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:background_downloader/background_downloader.dart';
+import 'package:crypto/crypto.dart';
 import 'package:flutter/foundation.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:recall_app/services/ai/ai_model_catalog.dart';
@@ -87,6 +88,12 @@ class ModelManagerService {
     AiModelSpec spec, {
     void Function(ModelDownloadProgress)? onProgress,
   }) async {
+    // Best-effort: ask for notification permission so the progress notification
+    // is visible on Android 13+ while the screen is locked.
+    try {
+      await FileDownloader().permissions.request(PermissionType.notifications);
+    } catch (_) {}
+
     final total = spec.sizeMb * 1024 * 1024;
     final task = DownloadTask(
       url: spec.url,
@@ -120,7 +127,27 @@ class ModelManagerService {
         '${ex != null ? ': ${ex.description}' : ''}',
       );
     }
-    return task.filePath();
+
+    final path = await task.filePath();
+    await _verifyIntegrity(spec, path);
+    return path;
+  }
+
+  /// Verify a downloaded file's SHA-256 against [AiModelSpec.sha256] when one
+  /// is provided. Hashes the file in a stream (no full load into memory). On
+  /// mismatch the corrupt/tampered file is deleted and an exception thrown.
+  ///
+  /// No-op when [spec.sha256] is null — fill catalog hashes (verified against a
+  /// known-good download) to activate supply-chain / corruption protection.
+  Future<void> _verifyIntegrity(AiModelSpec spec, String path) async {
+    final expected = spec.sha256?.trim().toLowerCase();
+    if (expected == null || expected.isEmpty) return;
+    final file = File(path);
+    final digest = await sha256.bind(file.openRead()).first;
+    if (digest.toString().toLowerCase() != expected) {
+      if (await file.exists()) await file.delete();
+      throw Exception('Model integrity check failed (SHA-256 mismatch).');
+    }
   }
 
   /// Remove an installed model (and any partial download) to free space.

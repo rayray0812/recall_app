@@ -82,17 +82,20 @@ final localLlmEngineProvider = FutureProvider<LocalLlmEngine>((ref) async {
 
   if (capability.platform == AiPlatform.android) {
     final manager = ref.watch(modelManagerProvider);
-    final recommended = ModelCatalog.recommended(capability);
 
-    String path = '';
-    if (recommended != null) {
-      path = await manager.installedPath(recommended) ?? '';
-    }
-    // Fall back to a legacy manually-imported model file.
+    // 1. Honor the user's explicit choice first (set by ModelManagerCard's
+    //    download / "使用" actions). This is what makes switching models work —
+    //    selecting Qwen3 must actually run Qwen3 even if Gemma 4 is installed.
+    var path = ref.watch(gemmaLocalModelPathProvider).trim();
+
+    // 2. Otherwise default to the device-recommended model if it's installed.
     if (path.isEmpty) {
-      path = ref.watch(gemmaLocalModelPathProvider);
+      final recommended = ModelCatalog.recommended(capability);
+      if (recommended != null) {
+        path = (await manager.installedPath(recommended) ?? '').trim();
+      }
     }
-    if (path.trim().isNotEmpty) {
+    if (path.isNotEmpty) {
       return AndroidLiteRtLmEngine(modelPath: path);
     }
   }
@@ -113,8 +116,13 @@ final aiOnlineProvider = StreamProvider<bool>((ref) {
   );
 });
 
-/// Whether a cloud provider can be called (an API key is configured).
+/// Whether a cloud provider can be called for routing.
+///
+/// Choosing the on-device ("本機"/gemma) provider means cloud is NOT used for
+/// task routing — so selecting "本機" genuinely keeps tasks on-device, instead
+/// of that being controlled only by the separate privacy-mode toggle.
 final cloudConfiguredProvider = Provider<bool>((ref) {
+  if (ref.watch(aiProviderProvider) == AiProvider.gemma) return false;
   final geminiKey = ref.watch(geminiKeyProvider);
   final groqKey = ref.watch(groqKeyProvider);
   return geminiKey.trim().isNotEmpty || groqKey.trim().isNotEmpty;

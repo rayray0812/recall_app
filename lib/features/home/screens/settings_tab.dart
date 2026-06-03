@@ -594,6 +594,23 @@ class _SettingsTabState extends ConsumerState<SettingsTab> {
                                                   path.isEmpty) {
                                                 return;
                                               }
+                                              // Basic format sanity check —
+                                              // LiteRT-LM only loads .litertlm
+                                              // / .task files.
+                                              final lower = path.toLowerCase();
+                                              if (!lower.endsWith(
+                                                    '.litertlm',
+                                                  ) &&
+                                                  !lower.endsWith('.task')) {
+                                                messenger.showSnackBar(
+                                                  const SnackBar(
+                                                    content: Text(
+                                                      '請選擇 .litertlm 或 .task 模型檔',
+                                                    ),
+                                                  ),
+                                                );
+                                                return;
+                                              }
                                               if (!ctx.mounted) return;
                                               await ref
                                                   .read(

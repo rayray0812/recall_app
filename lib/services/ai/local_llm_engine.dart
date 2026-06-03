@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter/services.dart';
 import 'package:recall_app/services/on_device_ai_service.dart';
 
@@ -44,9 +46,14 @@ class AndroidLiteRtLmEngine implements LocalLlmEngine {
 
   @override
   Future<bool> isAvailable() async {
-    if (modelPath.trim().isEmpty) return false;
-    final status = await OnDeviceAiService.checkModel(modelPath);
-    return status.ready;
+    final p = modelPath.trim();
+    if (p.isEmpty) return false;
+    // Cheap existence check only. Do NOT load/initialize the model here —
+    // LiteRT-LM init takes ~10s and loads GBs into RAM, and this runs on every
+    // route/availability check (rendering an AI button, opening settings).
+    // Validity is verified lazily on the first generate() call, which fails
+    // gracefully (returns empty) if the file is not a usable model.
+    return File(p).exists();
   }
 
   @override
