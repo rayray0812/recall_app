@@ -284,12 +284,30 @@ class _CommunityTopBar extends ConsumerWidget {
         Stack(
           clipBehavior: Clip.none,
           children: [
-            IconButton.filledTonal(
-              tooltip: '好友通知',
-              onPressed: currentUser == null
-                  ? () => context.push('/login')
-                  : () => context.push('/community/notifications'),
-              icon: const Icon(Icons.notifications_outlined),
+            Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                IconButton.filledTonal(
+                  tooltip: '管理好友',
+                  onPressed: currentUser == null
+                      ? () => context.push('/login')
+                      : () => showModalBottomSheet<void>(
+                          context: context,
+                          backgroundColor: Colors.transparent,
+                          isScrollControlled: true,
+                          builder: (_) => const _FriendManagerSheet(),
+                        ),
+                  icon: const Icon(Icons.person_add_alt_1_rounded),
+                ),
+                const SizedBox(width: 8),
+                IconButton.filledTonal(
+                  tooltip: '好友通知',
+                  onPressed: currentUser == null
+                      ? () => context.push('/login')
+                      : () => context.push('/community/notifications'),
+                  icon: const Icon(Icons.notifications_outlined),
+                ),
+              ],
             ),
             if (pendingCount > 0)
               Positioned(
@@ -690,7 +708,27 @@ class _ExploreTabState extends ConsumerState<_ExploreTab> {
                     ? null
                     : () => context.push('/study/${latestLocalSet.id}'),
               ),
-              const SizedBox(height: 20),
+              const SizedBox(height: 12),
+              _CommunityShortcutRow(
+                pendingInvites: friendships
+                    .where(
+                      (item) =>
+                          item.status == CommunityFriendshipStatus.pending &&
+                          user != null &&
+                          item.isIncomingFor(user.id),
+                    )
+                    .length,
+                onFriends: user == null
+                    ? () => context.push('/login')
+                    : () => _showFriendManagerSheet(context),
+                onNotifications: user == null
+                    ? () => context.push('/login')
+                    : () => context.push('/community/notifications'),
+                onRecentSet: latestLocalSet == null
+                    ? null
+                    : () => context.push('/study/${latestLocalSet.id}'),
+              ),
+              const SizedBox(height: 18),
               if (categories.isNotEmpty) ...[
                 _SectionHeader(
                   icon: Icons.category_rounded,
@@ -1012,6 +1050,125 @@ class _CommunityHeroStat extends StatelessWidget {
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _CommunityShortcutRow extends StatelessWidget {
+  const _CommunityShortcutRow({
+    required this.pendingInvites,
+    required this.onFriends,
+    required this.onNotifications,
+    required this.onRecentSet,
+  });
+
+  final int pendingInvites;
+  final VoidCallback onFriends;
+  final VoidCallback onNotifications;
+  final VoidCallback? onRecentSet;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Expanded(
+          child: _CommunityShortcutButton(
+            icon: Icons.person_add_alt_1_rounded,
+            label: '好友',
+            detail: '搜尋與邀請',
+            color: AppTheme.indigo,
+            onTap: onFriends,
+          ),
+        ),
+        const SizedBox(width: 8),
+        Expanded(
+          child: _CommunityShortcutButton(
+            icon: pendingInvites > 0
+                ? Icons.notifications_active_rounded
+                : Icons.notifications_none_rounded,
+            label: pendingInvites > 0 ? '$pendingInvites 則邀請' : '通知',
+            detail: '好友邀請',
+            color: pendingInvites > 0 ? AppTheme.red : AppTheme.gold,
+            onTap: onNotifications,
+          ),
+        ),
+        const SizedBox(width: 8),
+        Expanded(
+          child: _CommunityShortcutButton(
+            icon: Icons.play_arrow_rounded,
+            label: '最近',
+            detail: '繼續學習',
+            color: AppTheme.green,
+            onTap: onRecentSet,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _CommunityShortcutButton extends StatelessWidget {
+  const _CommunityShortcutButton({
+    required this.icon,
+    required this.label,
+    required this.detail,
+    required this.color,
+    required this.onTap,
+  });
+
+  final IconData icon;
+  final String label;
+  final String detail;
+  final Color color;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: Colors.white,
+      borderRadius: BorderRadius.circular(16),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(16),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 11),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: color.withValues(alpha: 0.20)),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.025),
+                blurRadius: 10,
+                offset: const Offset(0, 3),
+              ),
+            ],
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Icon(icon, color: color, size: 20),
+              const SizedBox(height: 7),
+              Text(
+                label,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  color: _darkText,
+                  fontSize: 13,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+              const SizedBox(height: 2),
+              Text(
+                detail,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(color: _subtleText, fontSize: 11),
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }
@@ -1778,33 +1935,28 @@ class _ClassroomTabState extends ConsumerState<_ClassroomTab> {
                       },
                     ),
                     const SizedBox(height: 12),
-                    Wrap(
-                      crossAxisAlignment: WrapCrossAlignment.center,
-                      runSpacing: 4,
-                      children: [
-                        Expanded(
-                          child: FilledButton.icon(
-                            onPressed: () {
-                              if (role == 'teacher') {
-                                _showCreateClassDialog(context, ref);
-                              } else {
-                                _showJoinClassDialog(context, ref);
-                              }
-                            },
-                            icon: Icon(
-                              role == 'teacher'
-                                  ? Icons.add_circle_outline_rounded
-                                  : Icons.input_rounded,
-                              size: 18,
-                            ),
-                            label: Text(
-                              role == 'teacher'
-                                  ? '\u5EFA\u7ACB\u73ED\u7D1A'
-                                  : '\u52A0\u5165\u73ED\u7D1A',
-                            ),
-                          ),
+                    SizedBox(
+                      width: double.infinity,
+                      child: FilledButton.icon(
+                        onPressed: () {
+                          if (role == 'teacher') {
+                            _showCreateClassDialog(context, ref);
+                          } else {
+                            _showJoinClassDialog(context, ref);
+                          }
+                        },
+                        icon: Icon(
+                          role == 'teacher'
+                              ? Icons.add_circle_outline_rounded
+                              : Icons.input_rounded,
+                          size: 18,
                         ),
-                      ],
+                        label: Text(
+                          role == 'teacher'
+                              ? '\u5EFA\u7ACB\u73ED\u7D1A'
+                              : '\u52A0\u5165\u73ED\u7D1A',
+                        ),
+                      ),
                     ),
                   ],
                 ),
@@ -2736,6 +2888,8 @@ class _PublicSetCard extends ConsumerWidget {
                             .toList(),
                       ),
                     ],
+                    const SizedBox(height: 12),
+                    _RatingActionPanel(publicSet: publicSet),
                   ],
                 ),
               ),
@@ -2786,8 +2940,6 @@ class _PublicSetCard extends ConsumerWidget {
                 padding: const EdgeInsets.fromLTRB(20, 0, 20, 24),
                 child: Column(
                   children: [
-                    _RatingActionPanel(publicSet: publicSet),
-                    const SizedBox(height: 8),
                     if (user != null && user.id != publicSet.userId) ...[
                       SizedBox(
                         width: double.infinity,

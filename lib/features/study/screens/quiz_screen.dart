@@ -187,10 +187,6 @@ class _QuizScreenState extends ConsumerState<QuizScreen>
   int _pacedQuestionCount = 0;
   bool _showCompletionCelebrate = false;
   bool _navigatingToResult = false;
-  // Whether the local AI confusion-diagnosis affordance can run. Refreshed from
-  // [localConfusionAvailableProvider] in build(); read synchronously when an
-  // answer is graded to decide whether to pause auto-advance for the L3 dialog.
-  bool _confusionAvailable = false;
   // AI smart-distractor enrichment. Cache is keyed by [_smartKey] (card + ask
   // direction) so options stay stable across rebuilds and are reused. When a
   // question's key is present, its AI options replace the random-card baseline.
@@ -334,7 +330,9 @@ class _QuizScreenState extends ConsumerState<QuizScreen>
         } else {
           final others = _allCards.where((c) => c.id != card.id).toList();
           others.shuffle(_random);
-          shownDef = _stripPos(reversed ? others.first.term : others.first.definition);
+          shownDef = _stripPos(
+            reversed ? others.first.term : others.first.definition,
+          );
         }
         return QuizQuestion(
           card: card,
@@ -379,16 +377,12 @@ class _QuizScreenState extends ConsumerState<QuizScreen>
       }
     });
 
-    // When the local-AI confusion diagnosis is offered (wrong answer in the
-    // main round), hold on auto-advance so the learner can open the dialog and
-    // move on with the manual "Next" button. Otherwise keep the timed flow.
-    final offersDiagnosis = !isCorrect &&
-        !_isReinforcementRound &&
-        _confusionAvailable &&
-        !_answeredWithSmart;
-    if (!offersDiagnosis) {
-      _advanceAfterDelay(1200);
-    }
+    // Keep the quiz moving by default. Wrong real-card distractors get a longer
+    // pause so the learner can opt into local-AI diagnosis; tapping the CTA
+    // cancels this timer and leaves the manual "Next" button visible.
+    final offersDiagnosis =
+        !isCorrect && !_isReinforcementRound && !_answeredWithSmart;
+    _advanceAfterDelay(offersDiagnosis ? 3500 : 1200);
   }
 
   void _onTextInputAnswered(bool isCorrect) {
@@ -604,11 +598,6 @@ class _QuizScreenState extends ConsumerState<QuizScreen>
 
     final l10n = AppLocalizations.of(context);
 
-    // Warm + cache local-AI availability so _onMultipleChoiceSelect can read it
-    // synchronously when grading the next answer.
-    _confusionAvailable =
-        ref.watch(localConfusionAvailableProvider).valueOrNull ?? false;
-
     if (studySet == null || studySet.cards.length < 4 || _questions.isEmpty) {
       return Scaffold(
         appBar: AppBar(leading: const AppBackButton(), title: Text(l10n.quiz)),
@@ -753,21 +742,25 @@ class _QuizScreenState extends ConsumerState<QuizScreen>
       padding: const EdgeInsets.only(top: 6),
       child: Wrap(
         spacing: 6,
-        children: posTags.map((tag) => Container(
-          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-          decoration: BoxDecoration(
-            color: AppTheme.indigo.withValues(alpha: 0.1),
-            borderRadius: BorderRadius.circular(8),
-          ),
-          child: Text(
-            tag,
-            style: TextStyle(
-              fontSize: 12,
-              fontWeight: FontWeight.w600,
-              color: AppTheme.indigo,
-            ),
-          ),
-        )).toList(),
+        children: posTags
+            .map(
+              (tag) => Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                decoration: BoxDecoration(
+                  color: AppTheme.indigo.withValues(alpha: 0.1),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Text(
+                  tag,
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                    color: AppTheme.indigo,
+                  ),
+                ),
+              ),
+            )
+            .toList(),
       ),
     );
   }
@@ -846,23 +839,25 @@ class _QuizScreenState extends ConsumerState<QuizScreen>
 
       // Show answer side (definition or term) as option text, strip POS
       final optionText = _stripPos(
-          question.reversed ? optionCard.term : optionCard.definition);
+        question.reversed ? optionCard.term : optionCard.definition,
+      );
 
       return QuizOptionTile(
         text: optionText,
         state: state,
-        onTap:
-            _selectedOption == null ? () => _onMultipleChoiceSelect(i) : null,
+        onTap: _selectedOption == null
+            ? () => _onMultipleChoiceSelect(i)
+            : null,
       );
     });
   }
 
   /// True when the learner just answered this multiple-choice question wrong in
-  /// the main round and the local-AI diagnosis can run. In this state
-  /// auto-advance was suppressed, so a manual "Next" button is shown alongside.
+  /// the main round with a real distractor card. The quiz still auto-advances,
+  /// but the CTA can cancel that timer when the learner wants the explanation.
   bool _shouldOfferDiagnosis(QuizQuestion question, int correctIndex) {
     if (_selectedOption == null) return false;
-    if (_isReinforcementRound || !_confusionAvailable) return false;
+    if (_isReinforcementRound) return false;
     // L3 needs a real distractor *card* (term + definition) to compare against;
     // AI string distractors don't map to a card, so skip diagnosis there.
     if (_answeredWithSmart) return false;
@@ -879,37 +874,65 @@ class _QuizScreenState extends ConsumerState<QuizScreen>
     final targetCard = question.card;
     return Padding(
       padding: const EdgeInsets.only(top: 20),
-      child: Row(
-        children: [
-          Expanded(
-            child: TextButton.icon(
-              onPressed: () => ConfusionDiagnosisDialog.show(
-                context,
-                request: ConfusionRequest(
-                  targetTerm: targetCard.term,
-                  targetDefinition: targetCard.definition,
-                  chosenTerm: chosenCard.term,
-                  chosenDefinition: chosenCard.definition,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+        decoration: AppTheme.softCardDecoration(
+          fillColor: AppTheme.indigo.withValues(alpha: 0.06),
+          borderRadius: 14,
+          borderColor: AppTheme.indigo.withValues(alpha: 0.16),
+        ),
+        child: Row(
+          children: [
+            Expanded(
+              child: TextButton.icon(
+                onPressed: () {
+                  _advanceTimer?.cancel();
+                  ConfusionDiagnosisDialog.show(
+                    context,
+                    request: ConfusionRequest(
+                      targetTerm: targetCard.term,
+                      targetDefinition: targetCard.definition,
+                      chosenTerm: chosenCard.term,
+                      chosenDefinition: chosenCard.definition,
+                    ),
+                  );
+                },
+                icon: Container(
+                  width: 26,
+                  height: 26,
+                  alignment: Alignment.center,
+                  decoration: BoxDecoration(
+                    color: AppTheme.indigo.withValues(alpha: 0.12),
+                    shape: BoxShape.circle,
+                  ),
+                  child: const Text('🧠', style: TextStyle(fontSize: 15)),
+                ),
+                label: Text(
+                  l10n.confusionWhyCta,
+                  style: const TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w700,
+                  ),
+                  overflow: TextOverflow.ellipsis,
+                ),
+                style: TextButton.styleFrom(
+                  foregroundColor: AppTheme.indigo,
+                  padding: const EdgeInsets.symmetric(horizontal: 8),
+                  visualDensity: VisualDensity.compact,
                 ),
               ),
-              icon: const Text('🧠', style: TextStyle(fontSize: 16)),
-              label: Text(
-                l10n.confusionWhyCta,
-                style: const TextStyle(
-                  fontSize: 13,
-                  fontWeight: FontWeight.w600,
-                ),
-                overflow: TextOverflow.ellipsis,
-              ),
-              style: TextButton.styleFrom(foregroundColor: AppTheme.indigo),
             ),
-          ),
-          const SizedBox(width: 8),
-          FilledButton(
-            onPressed: _advance,
-            child: Text(l10n.next),
-          ),
-        ],
+            const SizedBox(width: 8),
+            FilledButton(
+              onPressed: _advance,
+              style: FilledButton.styleFrom(
+                visualDensity: VisualDensity.compact,
+                padding: const EdgeInsets.symmetric(horizontal: 14),
+              ),
+              child: Text(l10n.next),
+            ),
+          ],
+        ),
       ),
     );
   }

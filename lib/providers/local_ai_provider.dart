@@ -9,7 +9,9 @@ import 'package:recall_app/services/local_ai_service.dart';
 /// (model installed / Apple FM available and privacy/availability allow it).
 /// AsyncValue because device capability + model readiness resolve
 /// asynchronously; UI hides the affordance until it resolves to true.
-final localHintAvailableProvider = Provider.autoDispose<AsyncValue<bool>>((ref) {
+final localHintAvailableProvider = Provider.autoDispose<AsyncValue<bool>>((
+  ref,
+) {
   return ref
       .watch(aiRouteProvider(AiTaskType.reviewHint))
       .whenData((decision) => decision.isLocal);
@@ -20,8 +22,9 @@ final localHintAvailableProvider = Provider.autoDispose<AsyncValue<bool>>((ref) 
 /// Mirrors [localHintAvailableProvider] but for the mnemonic task: true only
 /// when [AiRouter] routes it to a local engine. UI hides the button until this
 /// resolves to true.
-final localMnemonicAvailableProvider =
-    Provider.autoDispose<AsyncValue<bool>>((ref) {
+final localMnemonicAvailableProvider = Provider.autoDispose<AsyncValue<bool>>((
+  ref,
+) {
   return ref
       .watch(aiRouteProvider(AiTaskType.mnemonic))
       .whenData((decision) => decision.isLocal);
@@ -56,8 +59,8 @@ class ReviewHintRequest {
 /// AutoDispose so hints don't pile up across review sessions.
 /// Family-keyed by [ReviewHintRequest] so different cards have independent
 /// caches within the same session.
-final reviewHintProvider =
-    FutureProvider.autoDispose.family<String?, ReviewHintRequest>((ref, req) async {
+final reviewHintProvider = FutureProvider.autoDispose
+    .family<String?, ReviewHintRequest>((ref, req) async {
       final decision = await ref.watch(
         aiRouteProvider(AiTaskType.reviewHint).future,
       );
@@ -71,8 +74,8 @@ final reviewHintProvider =
     });
 
 /// L2: lazy provider that produces a memory mnemonic.
-final mnemonicProvider =
-    FutureProvider.autoDispose.family<String?, ReviewHintRequest>((ref, req) async {
+final mnemonicProvider = FutureProvider.autoDispose
+    .family<String?, ReviewHintRequest>((ref, req) async {
       final decision = await ref.watch(
         aiRouteProvider(AiTaskType.mnemonic).future,
       );
@@ -90,8 +93,9 @@ final mnemonicProvider =
 /// Mirrors [localHintAvailableProvider] but for the confusion-diagnosis task:
 /// true only when [AiRouter] routes it to a local engine. UI hides the
 /// "why the mix-up?" affordance until this resolves to true.
-final localConfusionAvailableProvider =
-    Provider.autoDispose<AsyncValue<bool>>((ref) {
+final localConfusionAvailableProvider = Provider.autoDispose<AsyncValue<bool>>((
+  ref,
+) {
   return ref
       .watch(aiRouteProvider(AiTaskType.confusionDiagnosis))
       .whenData((decision) => decision.isLocal);
@@ -121,17 +125,13 @@ class ConfusionRequest {
           chosenDefinition == other.chosenDefinition;
 
   @override
-  int get hashCode => Object.hash(
-        targetTerm,
-        targetDefinition,
-        chosenTerm,
-        chosenDefinition,
-      );
+  int get hashCode =>
+      Object.hash(targetTerm, targetDefinition, chosenTerm, chosenDefinition);
 }
 
 /// L3: lazy provider that explains a quiz confusion.
-final confusionExplanationProvider =
-    FutureProvider.autoDispose.family<String?, ConfusionRequest>((ref, req) async {
+final confusionExplanationProvider = FutureProvider.autoDispose
+    .family<String?, ConfusionRequest>((ref, req) async {
       final decision = await ref.watch(
         aiRouteProvider(AiTaskType.confusionDiagnosis).future,
       );
@@ -153,10 +153,10 @@ final confusionExplanationProvider =
 /// back to random other-card options when false.
 final localDistractorsAvailableProvider =
     Provider.autoDispose<AsyncValue<bool>>((ref) {
-  return ref
-      .watch(aiRouteProvider(AiTaskType.smartDistractors))
-      .whenData((decision) => decision.isLocal);
-});
+      return ref
+          .watch(aiRouteProvider(AiTaskType.smartDistractors))
+          .whenData((decision) => decision.isLocal);
+    });
 
 /// Argument for [smartDistractorsProvider].
 class SmartDistractorRequest {
@@ -194,17 +194,17 @@ class SmartDistractorRequest {
 /// routed locally or the model returns too few usable distractors.
 final smartDistractorsProvider = FutureProvider.autoDispose
     .family<List<String>?, SmartDistractorRequest>((ref, req) async {
-  final decision = await ref.watch(
-    aiRouteProvider(AiTaskType.smartDistractors).future,
-  );
-  if (!decision.isLocal) return null;
-  final engine = await ref.watch(localLlmEngineProvider.future);
-  return LocalAiService.generateDistractors(
-    engine: engine,
-    term: req.term,
-    definition: req.definition,
-    correctOption: req.correctOption,
-    reversed: req.reversed,
-    count: req.count,
-  );
-});
+      final decision = await ref.watch(
+        aiRouteProvider(AiTaskType.smartDistractors).future,
+      );
+      if (!decision.isLocal) return null;
+      final engine = await ref.watch(localLlmEngineProvider.future);
+      return LocalAiService.generateDistractors(
+        engine: engine,
+        term: req.term,
+        definition: req.definition,
+        correctOption: req.correctOption,
+        reversed: req.reversed,
+        count: req.count,
+      );
+    });
