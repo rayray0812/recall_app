@@ -528,19 +528,17 @@ Rules:
         '''
 Create one realistic daily-life English roleplay scenario for speaking practice.
 Difficulty: $difficulty
-Target words (use these later in dialogue): ${terms.take(8).join(', ')}
+Vocabulary the learner is studying: ${terms.take(8).join(', ')}
 Do not reuse these recent scenario titles: ${avoid.isEmpty ? 'N/A' : avoid}
 Requirements:
-- scenario must be practical and specific in real life
-- scenario must be clearly anchored to the given target words (not generic)
-- include at least 3 target words explicitly in setting/stages
-- include clear context: place + concrete goal + at least one constraint (time/budget/urgency)
-- keep roles clear and useful for language learners
-- title must be semantically different from all avoided titles
-- return ONLY JSON object with keys:
+- Pick a concrete real-life situation where these words would naturally come up (infer the THEME from the words — e.g. shopping, travel, school, health, money). Do NOT force the words into the title/setting verbatim; just choose a fitting context.
+- Include clear context: place + a concrete goal + at least one constraint (time/budget/urgency).
+- Roles must be two different people, clear and useful for a learner to play one side.
+- Title must be specific (not "Daily Conversation") and semantically different from all avoided titles.
+- return ONLY a JSON object with keys:
   title, titleZh, setting, settingZh, aiRole, aiRoleZh, userRole, userRoleZh, stages, stagesZh
-- stages must be an array of 5 short step strings
-- stagesZh must be Traditional Chinese and aligned with stages
+- stages must be an array of 5 short step strings describing how the conversation should progress.
+- stagesZh must be Traditional Chinese and aligned with stages.
 ''';
     final text = await _generateLightweightJsonText(
       apiKey: apiKey,

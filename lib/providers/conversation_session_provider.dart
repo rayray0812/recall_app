@@ -7,6 +7,7 @@ import 'package:recall_app/features/study/models/conversation_transcript.dart';
 import 'package:recall_app/features/study/models/conversation_turn_record.dart';
 import 'package:recall_app/features/study/services/conversation_engine.dart';
 import 'package:recall_app/features/study/services/conversation_prompts.dart';
+import 'package:recall_app/features/study/services/conversation_scenario_validator.dart';
 import 'package:recall_app/features/study/services/conversation_scorer.dart';
 import 'package:recall_app/features/study/utils/vocabulary_tracker.dart';
 import 'package:recall_app/features/study/utils/weak_term_selector.dart';
@@ -216,7 +217,10 @@ class ConversationSessionNotifier
           avoidTitles: blockedTitles,
         ).timeout(const Duration(milliseconds: 3000));
         if (generated != null &&
-            _isValidGeneratedScenario(generated, terms, blockedTitles)) {
+            isStructurallyValidScenario(
+              generated,
+              blockedTitles: blockedTitles,
+            )) {
           return generated;
         }
       } catch (_) {
@@ -237,107 +241,6 @@ class ConversationSessionNotifier
         _recentScenarioTitles.length - _recentScenarioWindow,
       );
     }
-  }
-
-  bool _isNearDuplicateTitle(String title, List<String> blockedTitles) {
-    final normalized = title.trim().toLowerCase();
-    if (normalized.isEmpty) return true;
-    for (final blocked in blockedTitles) {
-      final b = blocked.trim().toLowerCase();
-      if (b.isEmpty) continue;
-      if (normalized == b) return true;
-      if (normalized.contains(b) || b.contains(normalized)) return true;
-    }
-    return false;
-  }
-
-  bool _scenarioMatchesTargetTerms(
-    ConversationScenario scenario,
-    List<String> terms,
-  ) {
-    if (terms.isEmpty) return true;
-    final bag =
-        '${scenario.title} ${scenario.setting} ${scenario.stages.join(' ')}'
-            .toLowerCase();
-    final normalizedTerms = terms
-        .map((t) => t.trim().toLowerCase())
-        .where((t) => t.length >= 2)
-        .toSet();
-    var directHits = 0;
-    for (final term in normalizedTerms) {
-      if (bag.contains(term)) directHits++;
-    }
-
-    // Hard gate: scenario text must directly mention enough target terms.
-    final requiredHits = normalizedTerms.length >= 4 ? 3 : 2;
-    return directHits >= requiredHits;
-  }
-
-  bool _isValidGeneratedScenario(
-    ConversationScenario scenario,
-    List<String> terms,
-    List<String> blockedTitles,
-  ) {
-    if (_isNearDuplicateTitle(scenario.title, blockedTitles)) {
-      return false;
-    }
-    if (scenario.title.trim().isEmpty ||
-        scenario.setting.trim().isEmpty ||
-        scenario.aiRole.trim().isEmpty ||
-        scenario.userRole.trim().isEmpty) {
-      return false;
-    }
-    if (!_scenarioMatchesTargetTerms(scenario, terms)) {
-      return false;
-    }
-    if (_containsScenarioMetaText(scenario.title) ||
-        _containsScenarioMetaText(scenario.setting) ||
-        _containsScenarioMetaText(scenario.aiRole) ||
-        _containsScenarioMetaText(scenario.userRole) ||
-        scenario.stages.any(_containsScenarioMetaText)) {
-      return false;
-    }
-    if (scenario.aiRole.trim().toLowerCase() ==
-        scenario.userRole.trim().toLowerCase()) {
-      return false;
-    }
-    final hasZh =
-        _containsCjk(scenario.titleZh) ||
-        _containsCjk(scenario.settingZh) ||
-        _containsCjk(scenario.aiRoleZh) ||
-        _containsCjk(scenario.userRoleZh) ||
-        scenario.stagesZh.any(_containsCjk);
-    if (!hasZh) {
-      return false;
-    }
-    return true;
-  }
-
-  bool _containsScenarioMetaText(String value) {
-    final v = value.toLowerCase();
-    final raw = value.trim();
-    if (v.trim().isEmpty) return true;
-    return v.contains('output exactly') ||
-        v.contains('return only') ||
-        v.contains('target words') ||
-        v.contains('use these') ||
-        v.contains('prompt') ||
-        v.contains('json') ||
-        v.contains('current step') ||
-        v.contains('student message now') ||
-        v.contains('focus words') ||
-        v.contains('reply hint') ||
-        v.contains('ai vocabulary') ||
-        v.contains('ai-driven') ||
-        v.contains('scenario:') ||
-        raw.contains('單字導向情境') ||
-        raw.contains('請根據') ||
-        raw.contains('圍繞這些單字') ||
-        raw.contains('你正在協助');
-  }
-
-  bool _containsCjk(String value) {
-    return RegExp(r'[\u4e00-\u9fff]').hasMatch(value);
   }
 
   ConversationScenario _buildDynamicScenarioFromTerms({
