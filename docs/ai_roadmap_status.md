@@ -1,7 +1,7 @@
 # Grasp AI 功能 — 現況與待辦 Roadmap
 
 > **這份文件的用途**：清空對話後接續開發的單一入口。記錄本地優先 AI 的整體進度、
-> 還沒做的功能、以及只能在實機驗證的待辦。最後更新：2026-06-04（L2 口訣 + L3 混淆診斷 + 智慧干擾選項完成）。
+> 還沒做的功能、以及只能在實機驗證的待辦。最後更新：2026-06-04（L2/L3/智慧干擾完成；策略轉向「重新分流+加保護」見 §2.5）。
 >
 > 相關文件：`ai_strategy_plan.md`（本地優先策略總綱）、`ai_model_engine_plan.md`
 > （模型選型 + LiteRT-LM 引擎遷移）。本檔是「目前做到哪 / 接下來做什麼」的彙整。
@@ -40,7 +40,13 @@
 - **Code review 修正**（`f098b99`）：模型切換生效、availability 不再載入大模型、SHA-256 驗證機制、本機=不上雲、通知權限。
 - **Flutter 官方 skills 安裝**（`7007b1e`）：`.claude/skills/` 10 個。
 
-## 3. 待辦 / 下一步 📋
+## 2.5 策略轉向（2026-06-04）⚠️ 重要
+使用者提出**耗電/發熱/小模型品質**的疑慮。重新評估後決定「**重新分流 + 加保護**」：
+- **本地只留罕見、短、隱私敏感的任務**（L1 提示 / L2 口訣 / L3 診斷 / 例句）——使用者主動點、頻率低、就算慢也沒差。這才是「免費+離線+隱私」賣點的真正體現。
+- **高頻/重型任務應走雲端優先**（免費 Groq），本地只當離線/隱私 fallback。智慧干擾選項（每題自動觸發）是最高耗電風險，AI 家教（多輪連續生成）次之。
+- **已加全域保護**（`e3d5317`）：`DevicePowerPolicy` + `AiRouter.localInferenceAllowed` gate + `localInferenceAllowedProvider`（battery_plus）。省電模式 / 低電量未充電 → 自動停用本地推論（localOnly 隱藏、localPreferred/cloudPreferred 轉雲端）。fail-safe：讀不到電量就允許。10 測試。
+- **AI 家教暫不做**（原 roadmap B 最後一項）。決定：若日後做，走 **cloudPreferred**（不是 localPreferred），用既有 conversation 雲端基礎。
+- **核心未驗證假設**：沒有人在實機跑過這些本地模型，延遲/發熱/品質全未知。**在 A 段實機驗證之前，不該再加更多本地 AI 功能。**
 
 ### A. 實機驗證（只能你在電腦/手機做，擋住後續）
 - [ ] **LiteRT-LM native build**：`flutter run` 驗證 `OnDeviceAiChannel.kt` 編得過、能跑。VERIFY 點：`SamplerConfig(topK,topP,temperature)` 欄位、`extractText`/`message.text`、`litertlm-android:0.12.0` 版號、`Backend.CPU()`。
@@ -53,7 +59,8 @@
 - [x] **L2 口訣按鈕**（`cd3a77b`）：🧠 口訣 pill 加在 SRS 複習翻面後（評分按鈕上方），點擊呼叫 `mnemonicProvider` 顯示口訣 bubble。`localMnemonicAvailableProvider` gate 顯示、fail-silent。l10n（中/英）+ 3 widget 測試。
 - [x] **L3 答錯混淆診斷對話框**（`5ff331c`）：選擇題主回合答錯且本地 AI 就緒時，暫停自動前進、顯示「🧠 為什麼會搞混?」按鈕 + 手動「下一步」。點按彈出 `ConfusionDiagnosisDialog`，呼叫 `confusionExplanationProvider` 對比選錯的干擾卡 vs 正解。`localConfusionAvailableProvider` gate、無模型時流程不變。l10n（中/英）+ 3 widget 測試。
 - [x] **智慧干擾選項**（`e0743fa`）：新 `AiTaskType.smartDistractors`（localOnly）。測驗選擇題**懶載入**呼叫本地模型生成似是而非的錯誤選項，就緒才換上；隨機卡選項仍為永遠正確的基準與 fallback，計分不會卡在模型。`LocalAiService.generateDistractors` + `buildDistractorsPrompt`（正/反向）+ `parseDistractorLines`（去編號/項目符號/標籤、去重、排除正解、cap count）+ provider + 8 單元測試。answered-with-AI 時跳過 L3 診斷（無真實干擾卡可對比）。
-- [ ] **AI 家教對話**（Socratic，綁 FSRS 弱點卡片）— localPreferred，長對話可上雲 fallback。
+  - **⚠️ 待重新分流**：依 §2.5 策略，這個高頻任務應改成 cloudPreferred。**但需先寫一個 Groq 雲端干擾選項生成器**（`smartDistractorsProvider` 目前 `!decision.isLocal → return null`，改 tier 後上線時會靜默關閉）。目前先靠電量保護 gate 緩解。下一步：加 `GroqVisionService`/新服務的文字補全干擾選項路徑，再把 tier 改 cloudPreferred。
+- [~] **AI 家教對話**（Socratic，綁 FSRS 弱點卡片）— **暫不做**（見 §2.5）。若做，走 cloudPreferred + 既有 conversation 雲端基礎，不要走 localPreferred（多輪連續本地生成最耗電/發熱、小模型難維持 Socratic）。
 - [ ] 模式：每個新功能 = 加一個 `AiTaskType` + `LocalAiService` 方法 + prompt builder + provider/widget + 測試（參考 `0d44d8f` 例句的做法）。
 
 ### C. C2 iOS native（需 Xcode + 實機，無法在對話內驗證）
