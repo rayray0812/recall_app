@@ -2,10 +2,11 @@ import 'dart:async';
 import 'dart:math';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:google_generative_ai/google_generative_ai.dart';
 import 'package:recall_app/features/study/data/conversation_scenarios.dart';
 import 'package:recall_app/features/study/models/conversation_transcript.dart';
 import 'package:recall_app/features/study/models/conversation_turn_record.dart';
+import 'package:recall_app/features/study/services/conversation_engine.dart';
+import 'package:recall_app/features/study/services/conversation_prompts.dart';
 import 'package:recall_app/features/study/services/conversation_scorer.dart';
 import 'package:recall_app/features/study/utils/vocabulary_tracker.dart';
 import 'package:recall_app/features/study/utils/weak_term_selector.dart';
@@ -13,6 +14,7 @@ import 'package:recall_app/models/card_progress.dart';
 import 'package:recall_app/models/review_log.dart';
 import 'package:recall_app/models/review_session.dart';
 import 'package:recall_app/providers/auth_provider.dart';
+import 'package:recall_app/providers/conversation_engine_provider.dart';
 import 'package:recall_app/providers/fsrs_provider.dart';
 import 'package:recall_app/providers/gemini_key_provider.dart';
 import 'package:recall_app/providers/stats_provider.dart';
@@ -70,7 +72,7 @@ class ConversationSessionNotifier
   static const int _recentScenarioWindow = 10;
   static final List<String> _recentScenarioTitles = <String>[];
 
-  ChatSession? _chatSession;
+  ConversationEngine? _engine;
   late VocabularyTracker _vocab;
   int _consecutiveApiFailures = 0;
   int _rateLimitHitCount = 0;
@@ -81,7 +83,6 @@ class ConversationSessionNotifier
   Timer? _cooldownTicker;
   int _estimatedTotalTokens = 0;
   String _lastAiQuestionText = '';
-  int _chatModelIndex = 0;
   bool _hasPersistedSessionResult = false;
   final Map<String, List<SuggestedReplyData>> _suggestionCache = {};
 
@@ -96,11 +97,16 @@ class ConversationSessionNotifier
 
   /// Initialize and start the conversation session.
   Future<void> startSession() async {
-    final apiKey = ref.read(geminiKeyProvider);
-    if (apiKey.isEmpty) {
+    final engine = ref.read(conversationEngineProvider);
+    if (engine == null) {
+      // No cloud provider key configured at all.
       state = AsyncData(const ConversationSessionState());
       return;
     }
+    _engine = engine;
+    // Still used for scenario generation, suggestions and scoring (these route
+    // through Gemini for now; they degrade gracefully when the key is empty).
+    final apiKey = ref.read(geminiKeyProvider);
 
     final studySet = ref.read(studySetsProvider.notifier).getById(arg.setId);
     if (studySet == null) {
@@ -169,21 +175,8 @@ class ConversationSessionNotifier
     _cooldownTicker = null;
     _estimatedTotalTokens = 0;
     _lastAiQuestionText = '';
-    _chatModelIndex = 0;
     _hasPersistedSessionResult = false;
     _suggestionCache.clear();
-
-    _chatSession = GeminiService.startConversation(
-      apiKey: apiKey,
-      terms: _vocab.targetTerms,
-      difficulty: arg.difficulty,
-      totalTurns: arg.turns,
-      scenarioTitle: scenario.title,
-      scenarioSetting: scenario.setting,
-      aiRole: scenario.aiRole,
-      userRole: scenario.userRole,
-      chatModel: _currentChatModel(),
-    );
 
     state = AsyncData(
       ConversationSessionState(
@@ -604,46 +597,36 @@ class ConversationSessionNotifier
   }) async {
     _refreshCooldownState();
     final current = state.valueOrNull;
-    if (current == null || _chatSession == null) return;
+    if (current == null || _engine == null) return;
     if (current.isSessionEnded) return;
 
+    // Last-resort offline coach when budget/cooldown is exhausted.
     if (current.isQuotaExhausted ||
         current.useLocalCoachOnly ||
         _isOverTokenBudget()) {
-      if (addToUi) {
-        _addUserMessage(text);
-      }
+      if (addToUi) _addUserMessage(text);
       _appendLocalCoachTurn(userText: text);
       return;
     }
     if (_refreshCooldownState() || !_canUseRemoteChat(current)) {
-      if (addToUi) {
-        _addUserMessage(text);
-      }
+      if (addToUi) _addUserMessage(text);
       _appendLocalCoachTurn(userText: text);
       return;
     }
 
-    final wordCount = VocabularyTracker.targetTermsPerTurn(arg.difficulty);
-    final turnStartCursor = _vocab.focusCursor;
-    _vocab.advanceFocusCursor(wordCount);
-    final payload = _buildPromptWithCoverageHint(
-      text,
-      addToUi: addToUi,
+    // Snapshot history BEFORE adding the current user message, so it isn't sent
+    // twice (once in history, once as userMessage).
+    final history = _engineHistory();
+    final systemPrompt = _currentSystemPrompt();
+    final userMessage = buildTurnUserMessage(
       isFirstTurn: isFirstTurn,
-      fixedPriorityTerms: _vocab.nextPriorityTerms(
-        count: wordCount,
-        startOffset: turnStartCursor,
-      ),
+      aiRole: current.aiRole,
+      studentText: text,
     );
 
-    // Track used terms
-    Set<String> usedNow = {};
     if (addToUi) {
-      usedNow = _vocab.extractUsedTerms(text);
-      if (usedNow.isNotEmpty) {
-        _vocab.practicedTerms.addAll(usedNow);
-      }
+      final usedNow = _vocab.extractUsedTerms(text);
+      if (usedNow.isNotEmpty) _vocab.practicedTerms.addAll(usedNow);
       _addUserMessage(text);
     }
     _updateState(
@@ -656,57 +639,61 @@ class ConversationSessionNotifier
 
     try {
       await _respectChatRateLimit();
-      final response = await _chatSession!.sendMessage(Content.text(payload));
-      final responseText = response.text ?? '';
+      final responseText = await _engine!.generateTurn(
+        systemPrompt: systemPrompt,
+        history: history,
+        userMessage: userMessage,
+      );
       _estimatedTotalTokens +=
-          _estimateTokensFromChars(payload.length) +
+          _estimateTokensFromChars(systemPrompt.length + userMessage.length) +
           _estimateTokensFromChars(responseText.length);
       await _applyAiResponse(
         responseText: responseText,
         text: text,
         addToUi: addToUi,
-        usedNow: usedNow,
-        wordCount: wordCount,
-        turnStartCursor: turnStartCursor,
       );
       _consecutiveApiFailures = 0;
       _chatMinGapMs = 1500;
-    } on GenerativeAIException catch (e) {
-      final retried = await _retryWithNextChatModel(
-        payload: payload,
-        text: text,
-        addToUi: addToUi,
-        usedNow: usedNow,
-        wordCount: wordCount,
-        turnStartCursor: turnStartCursor,
-      );
-      if (retried) return;
-      _handleApiError(e.toString(), text);
-    } catch (e) {
-      _handleGenericError(text);
+    } on ConversationEngineException catch (e) {
+      _handleEngineError(e.reason, text);
+    } catch (_) {
+      _handleEngineError(ScanFailureReason.unknown, text);
     }
+  }
+
+  /// Conversation history as engine messages (UI bubbles → user/assistant roles).
+  List<ConversationMessage> _engineHistory() {
+    final msgs = state.valueOrNull?.messages ?? const <ChatMessageData>[];
+    return [
+      for (final m in msgs) ConversationMessage(isUser: !m.isAi, text: m.text),
+    ];
+  }
+
+  /// Fresh system prompt for the current turn (folds in adaptive difficulty).
+  String _currentSystemPrompt() {
+    final s = state.valueOrNull;
+    return buildConversationSystemPrompt(
+      aiRole: s?.aiRole ?? '',
+      userRole: s?.userRole ?? '',
+      scenarioTitle: s?.scenarioTitle ?? '',
+      scenarioSetting: s?.scenarioSetting ?? '',
+      difficulty: arg.difficulty,
+      targetWords: _vocab.targetTerms,
+      totalTurns: arg.turns,
+      currentTurn: s?.currentTurn ?? 0,
+      adaptiveHint: _adaptDifficultyHint(),
+    );
   }
 
   Future<void> _applyAiResponse({
     required String responseText,
     required String text,
     required bool addToUi,
-    required Set<String> usedNow,
-    required int wordCount,
-    required int turnStartCursor,
   }) async {
-    final parsed = _parseAiTurnContent(responseText);
-    var aiText = parsed.question;
-    final requiredFocusTerms = _vocab.nextPriorityTerms(
-      count: wordCount,
-      startOffset: turnStartCursor,
+    final aiText = cleanAiTurnText(
+      responseText,
+      aiRole: state.valueOrNull?.aiRole ?? '',
     );
-    if (!_containsAnyFocusTerm(aiText, requiredFocusTerms)) {
-      aiText = _buildFocusAlignedFallbackQuestion(requiredFocusTerms);
-    }
-    if (!_isScenarioAlignedQuestion(aiText)) {
-      aiText = _buildScenarioAlignedFallbackQuestion(requiredFocusTerms);
-    }
     if (aiText.isEmpty) {
       _updateState((s) => s.copyWith(isAiTyping: false));
       return;
@@ -729,8 +716,8 @@ class ConversationSessionNotifier
           turnIndex: newTurn - 1,
           aiQuestion: aiText,
           userResponse: text,
-          replyHint: parsed.replyHint,
-          termsUsed: usedNow,
+          replyHint: '',
+          termsUsed: _vocab.extractUsedTerms(text),
           timestamp: DateTime.now().toUtc(),
           isEvaluating: true,
         ),
@@ -743,7 +730,7 @@ class ConversationSessionNotifier
         messages: messages,
         turnRecords: turnRecords,
         isAiTyping: false,
-        latestReplyHint: parsed.replyHint,
+        latestReplyHint: '',
         currentTurn: newTurn,
         chatApiCalls: s.chatApiCalls + 1,
         isSessionEnded: isEnded,
@@ -758,57 +745,12 @@ class ConversationSessionNotifier
     }
   }
 
-  Future<bool> _retryWithNextChatModel({
-    required String payload,
-    required String text,
-    required bool addToUi,
-    required Set<String> usedNow,
-    required int wordCount,
-    required int turnStartCursor,
-  }) async {
-    while (_switchToNextChatModel()) {
-      try {
-        await _respectChatRateLimit();
-        final response = await _chatSession!.sendMessage(Content.text(payload));
-        final responseText = response.text ?? '';
-        _estimatedTotalTokens +=
-            _estimateTokensFromChars(payload.length) +
-            _estimateTokensFromChars(responseText.length);
-        await _applyAiResponse(
-          responseText: responseText,
-          text: text,
-          addToUi: addToUi,
-          usedNow: usedNow,
-          wordCount: wordCount,
-          turnStartCursor: turnStartCursor,
-        );
-        _consecutiveApiFailures = 0;
-        _chatMinGapMs = 1500;
-        return true;
-      } on GenerativeAIException catch (e) {
-        // Stop retrying on 429 — further calls will worsen rate limiting
-        if (_classifyApiIssue(e.toString()) == _ApiIssueType.rateLimit) {
-          return false;
-        }
-        continue;
-      } catch (_) {
-        continue;
-      }
-    }
-    return false;
-  }
-
-  void _handleApiError(String rawError, String userText) {
+  /// Handle an engine failure (all configured providers exhausted): cool down on
+  /// rate limits, then fall back to the offline coach for this turn.
+  void _handleEngineError(ScanFailureReason reason, String userText) {
     _updateState((s) => s.copyWith(isAiTyping: false));
-    final issueType = _classifyApiIssue(rawError);
-    if (issueType == _ApiIssueType.hardQuota) {
-      _updateState(
-        (s) => s.copyWith(isQuotaExhausted: true, useLocalCoachOnly: true),
-      );
-      _appendLocalCoachTurn(userText: userText);
-    } else if (issueType == _ApiIssueType.rateLimit) {
+    if (reason == ScanFailureReason.quotaExceeded) {
       _startRateCooldown();
-      // After 3+ rate limit hits, stay on local coach for the rest of this session
       final permanent = _rateLimitHitCount >= 3;
       _updateState(
         (s) => s.copyWith(
@@ -816,23 +758,13 @@ class ConversationSessionNotifier
           isQuotaExhausted: permanent ? true : s.isQuotaExhausted,
         ),
       );
-      _appendLocalCoachTurn(userText: userText);
     } else {
       _consecutiveApiFailures++;
       if (_consecutiveApiFailures >= 2) {
         _updateState((s) => s.copyWith(useLocalCoachOnly: true));
-        _appendLocalCoachTurn(userText: userText);
       }
     }
-  }
-
-  void _handleGenericError(String userText) {
-    _updateState((s) => s.copyWith(isAiTyping: false));
-    _consecutiveApiFailures++;
-    if (_consecutiveApiFailures >= 2) {
-      _updateState((s) => s.copyWith(useLocalCoachOnly: true));
-      _appendLocalCoachTurn(userText: userText);
-    }
+    _appendLocalCoachTurn(userText: userText);
   }
 
   void _addUserMessage(String text) {
@@ -1288,40 +1220,6 @@ class ConversationSessionNotifier
     _refreshCooldownState();
   }
 
-  String _currentChatModel() {
-    final models = GeminiService.chatModels;
-    if (models.isEmpty) {
-      return 'gemini-2.0-flash-lite';
-    }
-    if (_chatModelIndex < 0 || _chatModelIndex >= models.length) {
-      _chatModelIndex = 0;
-    }
-    return models[_chatModelIndex];
-  }
-
-  bool _switchToNextChatModel() {
-    final models = GeminiService.chatModels;
-    if (_chatModelIndex + 1 >= models.length) return false;
-    final current = state.valueOrNull;
-    if (current == null) return false;
-    final apiKey = ref.read(geminiKeyProvider);
-    if (apiKey.isEmpty) return false;
-
-    _chatModelIndex += 1;
-    _chatSession = GeminiService.startConversation(
-      apiKey: apiKey,
-      terms: _vocab.targetTerms,
-      difficulty: arg.difficulty,
-      totalTurns: arg.turns,
-      scenarioTitle: current.scenarioTitle,
-      scenarioSetting: current.scenarioSetting,
-      aiRole: current.aiRole,
-      userRole: current.userRole,
-      chatModel: _currentChatModel(),
-    );
-    return true;
-  }
-
   Future<void> _respectChatRateLimit() async {
     final now = DateTime.now();
     final last = _lastChatApiCallAt;
@@ -1387,35 +1285,6 @@ class ConversationSessionNotifier
     ];
   }
 
-  _ApiIssueType _classifyApiIssue(String raw) {
-    final msg = raw.toLowerCase();
-    final rateLimited =
-        msg.contains('429') ||
-        msg.contains('rate limit') ||
-        msg.contains('rate_limit') ||
-        msg.contains('too many requests') ||
-        msg.contains('per minute') ||
-        msg.contains('requests per minute');
-    if (rateLimited) return _ApiIssueType.rateLimit;
-
-    final hardQuota =
-        msg.contains('resource_exhausted') ||
-        msg.contains('resource has been exhausted') ||
-        (msg.contains('quota') && msg.contains('per day'));
-    if (hardQuota) return _ApiIssueType.hardQuota;
-
-    final isAuth =
-        msg.contains('api key not valid') ||
-        msg.contains('permission denied') ||
-        msg.contains('unauthenticated') ||
-        msg.contains('401') ||
-        msg.contains('403');
-    if (isAuth) return _ApiIssueType.auth;
-
-    if (msg.contains('api')) return _ApiIssueType.other;
-    return _ApiIssueType.none;
-  }
-
   /// Compute adaptive difficulty hint based on recent turn scores.
   /// Returns a prompt modifier string to append.
   String _adaptDifficultyHint() {
@@ -1442,262 +1311,6 @@ class ConversationSessionNotifier
     return '';
   }
 
-  String _buildPromptWithCoverageHint(
-    String userText, {
-    required bool addToUi,
-    required bool isFirstTurn,
-    List<String>? fixedPriorityTerms,
-  }) {
-    final wordCount = VocabularyTracker.targetTermsPerTurn(arg.difficulty);
-    final priorityTerms =
-        fixedPriorityTerms ?? _vocab.nextPriorityTerms(count: wordCount);
-    final fallbackCount = wordCount;
-    final focusTerms = priorityTerms.isEmpty
-        ? _vocab.targetTerms.take(fallbackCount).toList()
-        : priorityTerms;
-    final focusText = focusTerms.isEmpty ? '' : focusTerms.join(', ');
-    final meaningHints = focusTerms
-        .map((t) {
-          final def = (_vocab.termDefinitions[t] ?? '').trim();
-          if (def.isEmpty) return '';
-          final shortDef = def.length > 14 ? '${def.substring(0, 14)}...' : def;
-          return '$t:$shortDef';
-        })
-        .where((line) => line.isNotEmpty)
-        .join(';');
-    final sanitizedInput = addToUi ? _sanitizeUserInput(userText) : '';
-
-    final current = state.valueOrNull;
-    final stage = (current?.stages.isEmpty ?? true)
-        ? 'Continue the conversation naturally.'
-        : current!.stages[current.currentTurn % current.stages.length];
-
-    final studentLine = isFirstTurn
-        ? '(first turn)'
-        : (sanitizedInput.isEmpty ? '(empty)' : sanitizedInput);
-
-    final adaptHint = _adaptDifficultyHint();
-
-    if (!isFirstTurn) {
-      return '''
-Step: $stage
-Student: $studentLine
-Focus words: $focusText
-Word notes: ${meaningHints.isEmpty ? 'N/A' : meaningHints}$adaptHint
-Output exactly two lines:
-Question: ...
-Reply hint: Start with "..."
-Question MUST include at least one Focus word exactly as written.
-''';
-    }
-
-    return '''
-Current step: $stage
-Student message now: $studentLine
-Use these target words: $focusText
-Word notes: ${meaningHints.isEmpty ? 'N/A' : meaningHints}
-Output exactly two lines:
-Question: ...
-Reply hint: Start with "..."
-Question MUST include at least one target word exactly as written.
-''';
-  }
-
-  _AiTurnContent _parseAiTurnContent(String text) {
-    var cleaned = text.trim();
-    cleaned = cleaned.replaceFirst(
-      RegExp(r'^(hi|hello|hey)\b[^\n]*\n?', caseSensitive: false),
-      '',
-    );
-    cleaned = cleaned.replaceAll(RegExp(r'^\s*[-*]\s*', multiLine: true), '');
-
-    String question = '';
-    String hint = '';
-    for (final line in cleaned.split('\n')) {
-      final trimmed = line.trim();
-      final lower = trimmed.toLowerCase();
-      if (lower.startsWith('question:')) {
-        question = trimmed.substring('question:'.length).trim();
-      } else if (lower.startsWith('reply hint:')) {
-        hint = trimmed.substring('reply hint:'.length).trim();
-      }
-    }
-
-    if (question.isEmpty) {
-      final lines = cleaned
-          .split('\n')
-          .map((e) => e.trim())
-          .where((e) => e.isNotEmpty)
-          .where((e) {
-            final lower = e.toLowerCase();
-            return !lower.startsWith('scenario:') &&
-                !lower.startsWith('setting:') &&
-                !lower.startsWith('ai role:') &&
-                !lower.startsWith('your role:') &&
-                !lower.startsWith('user role:') &&
-                !lower.startsWith('objective:') &&
-                !lower.startsWith('next objective:') &&
-                !lower.startsWith('current step:') &&
-                !lower.startsWith('step:') &&
-                !lower.startsWith('focus words:') &&
-                !lower.startsWith('word notes:') &&
-                !lower.startsWith('output exactly') &&
-                !lower.startsWith('reply hint:');
-          })
-          .toList();
-      question = lines.isEmpty
-          ? 'What do you need in this situation?'
-          : lines.first;
-    }
-    question = question
-        .replaceFirst(RegExp(r'^(question:)\s*', caseSensitive: false), '')
-        .trim();
-    question = _normalizeQuestion(question);
-    if (_looksUnnaturalQuestion(question)) {
-      question = _buildFallbackQuestion();
-    }
-
-    if (hint.isEmpty) {
-      final starterTerms = _vocab.nextPriorityTerms(count: 1);
-      final starter = starterTerms.isEmpty
-          ? 'I would like'
-          : starterTerms.first;
-      hint = 'Start with "$starter ..."';
-    }
-    hint = hint
-        .replaceFirst(RegExp(r'^(reply hint:)\s*', caseSensitive: false), '')
-        .trim();
-
-    return _AiTurnContent(question: question, replyHint: hint);
-  }
-
-  String _normalizeQuestion(String question) {
-    var value = question.trim();
-    if (value.isEmpty) return value;
-    final aiRole = (state.valueOrNull?.aiRole ?? '').toLowerCase();
-    final isServiceRole =
-        aiRole.contains('staff') ||
-        aiRole.contains('barista') ||
-        aiRole.contains('pharmacist') ||
-        aiRole.contains('librarian') ||
-        aiRole.contains('receptionist') ||
-        aiRole.contains('host') ||
-        aiRole.contains('telecom') ||
-        aiRole.contains('landlord') ||
-        aiRole.contains('academic');
-    if (isServiceRole &&
-        RegExp(r'^where can i find\b', caseSensitive: false).hasMatch(value)) {
-      value = 'What are you looking for today';
-    }
-    value = value.replaceAll(
-      RegExp(r'^where do you think i can find\b', caseSensitive: false),
-      'Where can I find',
-    );
-    value = value.replaceAll(
-      RegExp(r'\bto the attach\b', caseSensitive: false),
-      'to attach',
-    );
-    value = value.replaceAll(RegExp(r'\s{2,}'), ' ');
-    if (!value.endsWith('?')) {
-      value = '$value?';
-    }
-    return value;
-  }
-
-  bool _looksUnnaturalQuestion(String question) {
-    final q = question.toLowerCase();
-    if (q.isEmpty) return true;
-    if (q.contains('to the attach')) return true;
-    if (q.contains('where do you think i can find')) return true;
-    if (q.contains('lack confidence') ||
-        q.contains('low confidence') ||
-        q.contains('self-esteem') ||
-        q.contains('confident person') ||
-        q.contains('personality test')) {
-      return true;
-    }
-    if (q.contains('bulletproof') &&
-        (q.contains('supermarket') ||
-            (state.valueOrNull?.scenarioTitle.toLowerCase().contains(
-                  'supermarket',
-                ) ??
-                false))) {
-      return true;
-    }
-    if (!q.contains('?')) return true;
-    return false;
-  }
-
-  String _buildFallbackQuestion() {
-    final current = state.valueOrNull;
-    final focus = _vocab.nextPriorityTerms(count: 1);
-    final lead = focus.isEmpty ? 'this item' : focus.first;
-    final scenario = (current?.scenarioTitle ?? '').toLowerCase();
-    if (scenario.contains('supermarket')) {
-      return 'What are you looking for today, especially about $lead?';
-    }
-    if (scenario.contains('cafe')) {
-      return 'Could you tell me your order details for $lead?';
-    }
-    if (scenario.contains('pharmacy')) {
-      return 'What do you need help with regarding $lead today?';
-    }
-    return 'What do you need today about $lead?';
-  }
-
-  bool _containsAnyFocusTerm(String question, List<String> focusTerms) {
-    if (focusTerms.isEmpty) return true;
-    final q = question.toLowerCase();
-    for (final term in focusTerms) {
-      final t = term.trim().toLowerCase();
-      if (t.isEmpty) continue;
-      if (q.contains(t)) return true;
-    }
-    return false;
-  }
-
-  String _buildFocusAlignedFallbackQuestion(List<String> focusTerms) {
-    final lead = focusTerms.isEmpty ? 'this item' : focusTerms.first;
-    final aiRole = (state.valueOrNull?.aiRole ?? '').toLowerCase();
-    if (aiRole.contains('staff') ||
-        aiRole.contains('barista') ||
-        aiRole.contains('pharmacist')) {
-      return 'What do you need today related to $lead?';
-    }
-    return 'Could you explain what you need about $lead?';
-  }
-
-  bool _isScenarioAlignedQuestion(String question) {
-    final q = question.toLowerCase();
-
-    // Hard block obvious off-topic mental/personality probes.
-    if (q.contains('confidence') ||
-        q.contains('self-esteem') ||
-        q.contains('personality') ||
-        q.contains('personality test') ||
-        q.contains('emotion') ||
-        q.contains('mindset') ||
-        q.contains('belief system')) {
-      return false;
-    }
-
-    // Accept anything else — the scenario prompt already constrains the AI.
-    return true;
-  }
-
-  String _buildScenarioAlignedFallbackQuestion(List<String> focusTerms) {
-    final lead = focusTerms.isEmpty ? 'this item' : focusTerms.first;
-    final current = state.valueOrNull;
-    final aiRole = (current?.aiRole ?? '').trim();
-    final step = (current?.stages.isEmpty ?? true)
-        ? ''
-        : current!.stages[current.currentTurn % current.stages.length];
-    final stepHint = step.isNotEmpty ? ' Right now, let\'s $step.' : '';
-    if (aiRole.isNotEmpty) {
-      return 'As your $aiRole, what can I help you with regarding $lead?$stepHint';
-    }
-    return 'What do you need today about $lead?$stepHint';
-  }
 }
 
 class _ScenarioProfile {
@@ -1722,10 +1335,3 @@ class _ScenarioProfile {
   });
 }
 
-enum _ApiIssueType { none, hardQuota, rateLimit, auth, other }
-
-class _AiTurnContent {
-  final String question;
-  final String replyHint;
-  const _AiTurnContent({required this.question, required this.replyHint});
-}
