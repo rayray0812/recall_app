@@ -1,7 +1,7 @@
 # Grasp AI 功能 — 現況與待辦 Roadmap
 
 > **這份文件的用途**：清空對話後接續開發的單一入口。記錄本地優先 AI 的整體進度、
-> 還沒做的功能、以及只能在實機驗證的待辦。最後更新：2026-06-03（L2 口訣 + L3 混淆診斷完成）。
+> 還沒做的功能、以及只能在實機驗證的待辦。最後更新：2026-06-04（L2 口訣 + L3 混淆診斷 + 智慧干擾選項完成）。
 >
 > 相關文件：`ai_strategy_plan.md`（本地優先策略總綱）、`ai_model_engine_plan.md`
 > （模型選型 + LiteRT-LM 引擎遷移）。本檔是「目前做到哪 / 接下來做什麼」的彙整。
@@ -47,11 +47,12 @@
 - [ ] **模型下載**：設定→AI→本機→下載 Qwen3 0.6B（614MB，先測流程）；確認鎖屏續傳、通知列進度。
 - [ ] **端到端**：下載完 → SRS 複習「💡 提示」/ 卡片「✨ AI 例句」有反應。
 - [ ] 填 catalog 的真實 **SHA-256**（實機下載成功後算 `shasum -a 256 <file>`，填進 `ai_model_catalog.dart`，啟用完整性驗證）。
+- [ ] **智慧干擾選項延遲驗證**：實機測模型生成 3 個干擾選項要多久。目前是「進到該題才預取、就緒才換上」，若太慢使用者可能先看到隨機卡選項。觀察換上的時機是否自然；必要時改成「整份測驗開始前先批次預取前 N 題」。
 
 ### B. 還沒做的本地 AI 功能（純 Dart，可在對話內驗證）
 - [x] **L2 口訣按鈕**（`cd3a77b`）：🧠 口訣 pill 加在 SRS 複習翻面後（評分按鈕上方），點擊呼叫 `mnemonicProvider` 顯示口訣 bubble。`localMnemonicAvailableProvider` gate 顯示、fail-silent。l10n（中/英）+ 3 widget 測試。
 - [x] **L3 答錯混淆診斷對話框**（`5ff331c`）：選擇題主回合答錯且本地 AI 就緒時，暫停自動前進、顯示「🧠 為什麼會搞混?」按鈕 + 手動「下一步」。點按彈出 `ConfusionDiagnosisDialog`，呼叫 `confusionExplanationProvider` 對比選錯的干擾卡 vs 正解。`localConfusionAvailableProvider` gate、無模型時流程不變。l10n（中/英）+ 3 widget 測試。
-- [ ] **智慧干擾選項**（新 AiTaskType）：用相似詞生成更像的測驗錯誤選項。
+- [x] **智慧干擾選項**（`e0743fa`）：新 `AiTaskType.smartDistractors`（localOnly）。測驗選擇題**懶載入**呼叫本地模型生成似是而非的錯誤選項，就緒才換上；隨機卡選項仍為永遠正確的基準與 fallback，計分不會卡在模型。`LocalAiService.generateDistractors` + `buildDistractorsPrompt`（正/反向）+ `parseDistractorLines`（去編號/項目符號/標籤、去重、排除正解、cap count）+ provider + 8 單元測試。answered-with-AI 時跳過 L3 診斷（無真實干擾卡可對比）。
 - [ ] **AI 家教對話**（Socratic，綁 FSRS 弱點卡片）— localPreferred，長對話可上雲 fallback。
 - [ ] 模式：每個新功能 = 加一個 `AiTaskType` + `LocalAiService` 方法 + prompt builder + provider/widget + 測試（參考 `0d44d8f` 例句的做法）。
 
