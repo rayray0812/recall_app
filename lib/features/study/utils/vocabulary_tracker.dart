@@ -1,5 +1,3 @@
-import 'dart:math';
-
 /// Tracks vocabulary coverage during a conversation practice session.
 ///
 /// Pure Dart class — session-scoped, instantiated by the notifier.
@@ -15,11 +13,16 @@ class VocabularyTracker {
   final Set<String> practicedTerms = {};
   int focusCursor = 0;
 
+  /// [priorityOrder], when given, is a pre-ranked list of terms (e.g. FSRS
+  /// weakest-first) that drives selection: target terms are taken from this
+  /// order before falling back to the rest of [allTerms]. When null, selection
+  /// is random (original behaviour) for variety across sessions.
   VocabularyTracker({
     required List<String> allTerms,
     required Map<String, String> allTermDefinitions,
     required int maxTargetCount,
-  })  : targetTerms = _deduplicateTerms(allTerms, maxTargetCount),
+    List<String>? priorityOrder,
+  })  : targetTerms = _selectTerms(allTerms, maxTargetCount, priorityOrder),
         termDefinitions = {} {
     for (final t in targetTerms) {
       termDefinitions[t] = allTermDefinitions[t] ?? '';
@@ -32,12 +35,24 @@ class VocabularyTracker {
     required this.termDefinitions,
   });
 
-  static List<String> _deduplicateTerms(List<String> terms, int maxCount) {
-    final shuffled = List<String>.from(terms)..shuffle();
-    final count = min(shuffled.length, maxCount);
+  static List<String> _selectTerms(
+    List<String> terms,
+    int maxCount,
+    List<String>? priorityOrder,
+  ) {
+    // Priority path: take ranked terms first, then top up from the rest
+    // (shuffled) so weak words are always covered without losing all variety.
+    final ordered = priorityOrder == null
+        ? (List<String>.from(terms)..shuffle())
+        : <String>[
+            ...priorityOrder,
+            ...(List<String>.from(terms)..shuffle()),
+          ];
+
     final deduped = <String>[];
     final seen = <String>{};
-    for (final term in shuffled.take(count)) {
+    for (final term in ordered) {
+      if (deduped.length >= maxCount) break;
       final normalized = normalizeForMatch(term);
       if (normalized.isEmpty || seen.contains(normalized)) continue;
       seen.add(normalized);

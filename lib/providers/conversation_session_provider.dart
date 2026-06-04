@@ -8,6 +8,8 @@ import 'package:recall_app/features/study/models/conversation_transcript.dart';
 import 'package:recall_app/features/study/models/conversation_turn_record.dart';
 import 'package:recall_app/features/study/services/conversation_scorer.dart';
 import 'package:recall_app/features/study/utils/vocabulary_tracker.dart';
+import 'package:recall_app/features/study/utils/weak_term_selector.dart';
+import 'package:recall_app/models/card_progress.dart';
 import 'package:recall_app/models/review_log.dart';
 import 'package:recall_app/models/review_session.dart';
 import 'package:recall_app/providers/auth_provider.dart';
@@ -122,10 +124,15 @@ class ConversationSessionNotifier
       terms.length,
       _sessionTargetTermCount(arg.difficulty),
     );
+    // Rank terms by FSRS weakness so the conversation drills the words the
+    // learner actually struggles with (overdue / lapsed / hard / fragile),
+    // instead of a random subset.
+    final priorityOrder = _weaknessOrderedTerms(terms);
     _vocab = VocabularyTracker(
       allTerms: terms,
       allTermDefinitions: termToDefinition,
       maxTargetCount: targetCount,
+      priorityOrder: priorityOrder,
     );
     if (_vocab.targetTerms.length == 2 &&
         _hasSemanticConflict(_vocab.targetTerms[0], _vocab.targetTerms[1])) {
@@ -432,6 +439,34 @@ class ConversationSessionNotifier
       userRole: 'Customer',
       userRoleZh: '顧客',
     );
+  }
+
+  /// Order [terms] weakest-first using this set's FSRS [CardProgress]. Returns
+  /// the input order on any storage error so a session never fails to start.
+  List<String> _weaknessOrderedTerms(List<String> terms) {
+    try {
+      final studySet = ref.read(studySetsProvider.notifier).getById(arg.setId);
+      if (studySet == null) return terms;
+      final storage = ref.read(localStorageServiceProvider);
+      final progressById = <String, CardProgress>{
+        for (final p in storage.getCardProgressForSet(arg.setId)) p.cardId: p,
+      };
+      final progressByTerm = <String, CardProgress>{};
+      for (final card in studySet.cards) {
+        final term = card.term.trim();
+        final progress = progressById[card.id];
+        if (term.isNotEmpty && progress != null) {
+          progressByTerm[term] = progress;
+        }
+      }
+      return orderTermsByWeakness(
+        terms: terms,
+        progressByTerm: progressByTerm,
+        now: DateTime.now().toUtc(),
+      );
+    } catch (_) {
+      return terms;
+    }
   }
 
   int _sessionTargetTermCount(String difficulty) {
