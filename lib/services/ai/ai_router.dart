@@ -65,6 +65,10 @@ class AiRouter {
   /// - [privacyMode]: user opted to keep everything on-device — cloud is never
   ///   used; tasks that can't run locally become unavailable.
   /// - [cloudConfigured]: a cloud provider can be called (key set or free tier).
+  /// - [localInferenceAllowed]: device power state permits heavy on-device work
+  ///   (see [DevicePowerPolicy]). When false we treat local as unusable so
+  ///   battery-saver / low-battery devices stop running the model — cloud tasks
+  ///   are unaffected; localOnly affordances simply hide.
   static AiRouteDecision route({
     required AiTaskType type,
     required AiCapability capability,
@@ -72,9 +76,11 @@ class AiRouter {
     required bool online,
     required bool privacyMode,
     required bool cloudConfigured,
+    bool localInferenceAllowed = true,
   }) {
     final tier = tierFor(type);
-    final localOk = capability.supportsLocalLlm && localModelReady;
+    final localOk =
+        capability.supportsLocalLlm && localModelReady && localInferenceAllowed;
     final cloudOk = online && cloudConfigured;
 
     if (privacyMode) {

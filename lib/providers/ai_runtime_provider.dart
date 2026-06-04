@@ -1,3 +1,4 @@
+import 'package:battery_plus/battery_plus.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -8,6 +9,7 @@ import 'package:recall_app/providers/gemini_key_provider.dart';
 import 'package:recall_app/services/ai/ai_capability_service.dart';
 import 'package:recall_app/services/ai/ai_model_catalog.dart';
 import 'package:recall_app/services/ai/ai_router.dart';
+import 'package:recall_app/services/ai/device_power_policy.dart';
 import 'package:recall_app/services/ai/local_llm_engine.dart';
 import 'package:recall_app/services/ai/model_manager_service.dart';
 import 'package:recall_app/services/ai_task.dart';
@@ -116,6 +118,34 @@ final aiOnlineProvider = StreamProvider<bool>((ref) {
   );
 });
 
+/// Whether device power state permits heavy on-device inference right now.
+///
+/// On-device LLM inference is a sustained, power-hungry, heat-generating
+/// workload, so we back off in battery-saver / low-battery situations (see
+/// [DevicePowerPolicy]). Reads battery state via battery_plus and *fails safe*:
+/// any error or unsupported platform (web/desktop) returns true so AI features
+/// are never blocked merely for lack of power information.
+final localInferenceAllowedProvider = FutureProvider<bool>((ref) async {
+  try {
+    final battery = Battery();
+    final level = await battery.batteryLevel;
+    final batteryState = await battery.batteryState;
+    final saveMode = await battery.isInBatterySaveMode;
+    final isCharging = batteryState == BatteryState.charging ||
+        batteryState == BatteryState.full;
+    return DevicePowerPolicy.allowsLocalInference(
+      DevicePowerSnapshot(
+        batteryLevel: level,
+        isCharging: isCharging,
+        batterySaveMode: saveMode,
+      ),
+    );
+  } catch (e) {
+    debugPrint('localInferenceAllowed check failed (defaulting to true): $e');
+    return true;
+  }
+});
+
 /// Whether a cloud provider can be called for routing.
 ///
 /// Choosing the on-device ("本機"/gemma) provider means cloud is NOT used for
@@ -139,6 +169,8 @@ final aiRouteProvider = FutureProvider.family<AiRouteDecision, AiTaskType>((
   final online = ref.watch(aiOnlineProvider).valueOrNull ?? true;
   final privacyMode = ref.watch(aiPrivacyModeProvider);
   final cloudConfigured = ref.watch(cloudConfiguredProvider);
+  final localAllowed =
+      await ref.watch(localInferenceAllowedProvider.future);
 
   return AiRouter.route(
     type: type,
@@ -147,5 +179,6 @@ final aiRouteProvider = FutureProvider.family<AiRouteDecision, AiTaskType>((
     online: online,
     privacyMode: privacyMode,
     cloudConfigured: cloudConfigured,
+    localInferenceAllowed: localAllowed,
   );
 });
