@@ -14,6 +14,7 @@ import 'package:recall_app/features/study/utils/weak_term_selector.dart';
 import 'package:recall_app/models/card_progress.dart';
 import 'package:recall_app/models/review_log.dart';
 import 'package:recall_app/models/review_session.dart';
+import 'package:recall_app/providers/ai_provider_provider.dart';
 import 'package:recall_app/providers/auth_provider.dart';
 import 'package:recall_app/providers/conversation_engine_provider.dart';
 import 'package:recall_app/providers/fsrs_provider.dart';
@@ -812,33 +813,72 @@ class ConversationSessionNotifier
     String aiQuestion,
     String userResponse,
   ) {
-    final apiKey = ref.read(geminiKeyProvider);
     final current = state.valueOrNull;
-    if (current == null || apiKey.isEmpty) {
+    final geminiKey = ref.read(geminiKeyProvider).trim();
+    final groqKey = ref.read(groqKeyProvider).trim();
+    if (current == null || (geminiKey.isEmpty && groqKey.isEmpty)) {
       _evaluateTurnOffline(turnIndex, userResponse);
       return;
     }
 
-    ConversationScorer.evaluateTurn(
-          apiKey: apiKey,
-          aiQuestion: aiQuestion,
-          userResponse: userResponse,
-          scenarioTitle: current.scenarioTitle,
-          difficulty: arg.difficulty,
-          targetTerms: _vocab.targetTerms,
-        )
-        .then((feedback) {
-          final actualFeedback =
-              feedback ??
-              ConversationScorer.evaluateOffline(
-                userResponse: userResponse,
-                targetTerms: _vocab.targetTerms,
-              );
-          _updateTurnFeedback(turnIndex, actualFeedback);
-        })
-        .catchError((_) {
-          _evaluateTurnOffline(turnIndex, userResponse);
-        });
+    _scoreWithFallback(
+      aiQuestion: aiQuestion,
+      userResponse: userResponse,
+      scenarioTitle: current.scenarioTitle,
+      geminiKey: geminiKey,
+      groqKey: groqKey,
+    ).then((feedback) {
+      _updateTurnFeedback(
+        turnIndex,
+        feedback ??
+            ConversationScorer.evaluateOffline(
+              userResponse: userResponse,
+              targetTerms: _vocab.targetTerms,
+              aiQuestion: aiQuestion,
+            ),
+      );
+    }).catchError((_) {
+      _evaluateTurnOffline(turnIndex, userResponse);
+    });
+  }
+
+  /// Score a turn trying the user's preferred cloud provider first, then the
+  /// other as fallback. Returns null if neither produced usable feedback.
+  Future<TurnFeedback?> _scoreWithFallback({
+    required String aiQuestion,
+    required String userResponse,
+    required String scenarioTitle,
+    required String geminiKey,
+    required String groqKey,
+  }) async {
+    Future<TurnFeedback?> gemini() => geminiKey.isEmpty
+        ? Future.value(null)
+        : ConversationScorer.evaluateTurn(
+            apiKey: geminiKey,
+            aiQuestion: aiQuestion,
+            userResponse: userResponse,
+            scenarioTitle: scenarioTitle,
+            difficulty: arg.difficulty,
+            targetTerms: _vocab.targetTerms,
+          );
+    Future<TurnFeedback?> groq() => groqKey.isEmpty
+        ? Future.value(null)
+        : ConversationScorer.evaluateTurnGroq(
+            apiKey: groqKey,
+            aiQuestion: aiQuestion,
+            userResponse: userResponse,
+            scenarioTitle: scenarioTitle,
+            difficulty: arg.difficulty,
+            targetTerms: _vocab.targetTerms,
+          );
+
+    final preferGroq = ref.read(aiProviderProvider) == AiProvider.groq;
+    final order = preferGroq ? [groq, gemini] : [gemini, groq];
+    for (final attempt in order) {
+      final result = await attempt();
+      if (result != null) return result;
+    }
+    return null;
   }
 
   /// Offline scoring fallback.
