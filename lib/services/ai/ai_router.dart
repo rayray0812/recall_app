@@ -48,7 +48,8 @@ class AiRouter {
       AiTaskType.reviewHint ||
       AiTaskType.mnemonic ||
       AiTaskType.confusionDiagnosis ||
-      AiTaskType.exampleSentence => AiTaskTier.localOnly,
+      AiTaskType.exampleSentence ||
+      AiTaskType.smartDistractors => AiTaskTier.localOnly,
       // Medium tasks: prefer local, cloud as fallback.
       AiTaskType.photoImport ||
       AiTaskType.speakingScore => AiTaskTier.localPreferred,

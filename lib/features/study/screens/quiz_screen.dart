@@ -70,6 +70,14 @@ class QuizQuestion {
   });
 }
 
+/// AI-generated multiple-choice options for one question: [texts] are the 4
+/// shuffled display strings and [correctIndex] points to the real answer.
+class _SmartMcOptions {
+  final List<String> texts;
+  final int correctIndex;
+  const _SmartMcOptions(this.texts, this.correctIndex);
+}
+
 /// Selects cards for the quiz, optionally weighted by SRS data.
 ///
 /// When [prioritizeWeak] is true, cards with higher difficulty, more lapses,
@@ -183,7 +191,18 @@ class _QuizScreenState extends ConsumerState<QuizScreen>
   // [localConfusionAvailableProvider] in build(); read synchronously when an
   // answer is graded to decide whether to pause auto-advance for the L3 dialog.
   bool _confusionAvailable = false;
+  // AI smart-distractor enrichment. Cache is keyed by [_smartKey] (card + ask
+  // direction) so options stay stable across rebuilds and are reused. When a
+  // question's key is present, its AI options replace the random-card baseline.
+  final Map<String, _SmartMcOptions> _smartCache = {};
+  final Set<String> _smartInFlight = {};
+  // True when the *current* answered question was scored against AI options
+  // (so rendering keeps showing them and L3 diagnosis — which needs a real
+  // distractor card — is suppressed).
+  bool _answeredWithSmart = false;
   final _xpToastKey = GlobalKey<XpToastOverlayState>();
+
+  String _smartKey(QuizQuestion q) => '${q.card.id}_${q.reversed}';
 
   QuizSettings get _effectiveSettings {
     if (widget.settings != null) return widget.settings!;
@@ -247,6 +266,10 @@ class _QuizScreenState extends ConsumerState<QuizScreen>
     _showCompletionCelebrate = false;
     _navigatingToResult = false;
     _completionController.value = 0;
+    // Defer AI prefetch until providers are ready (after first frame).
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _prefetchSmartForCurrent();
+    });
   }
 
   List<QuizQuestion> _generateMixedQuestions(
@@ -327,8 +350,18 @@ class _QuizScreenState extends ConsumerState<QuizScreen>
     if (_selectedOption != null) return;
     final question = _questions[_currentIndex];
     _applyPaceScore(question.type);
-    final correctIndex = _allCards.indexOf(question.card);
-    final isCorrect = question.optionIndices[optionIndex] == correctIndex;
+
+    // Prefer AI options if they arrived for this question; otherwise score
+    // against the baseline random-card options.
+    final smart = _smartCache[_smartKey(question)];
+    final bool isCorrect;
+    if (smart != null) {
+      isCorrect = optionIndex == smart.correctIndex;
+      _answeredWithSmart = true;
+    } else {
+      final correctIndex = _allCards.indexOf(question.card);
+      isCorrect = question.optionIndices[optionIndex] == correctIndex;
+    }
 
     setState(() {
       _selectedOption = optionIndex;
@@ -349,8 +382,10 @@ class _QuizScreenState extends ConsumerState<QuizScreen>
     // When the local-AI confusion diagnosis is offered (wrong answer in the
     // main round), hold on auto-advance so the learner can open the dialog and
     // move on with the manual "Next" button. Otherwise keep the timed flow.
-    final offersDiagnosis =
-        !isCorrect && !_isReinforcementRound && _confusionAvailable;
+    final offersDiagnosis = !isCorrect &&
+        !_isReinforcementRound &&
+        _confusionAvailable &&
+        !_answeredWithSmart;
     if (!offersDiagnosis) {
       _advanceAfterDelay(1200);
     }
@@ -413,12 +448,60 @@ class _QuizScreenState extends ConsumerState<QuizScreen>
       setState(() {
         _currentIndex++;
         _selectedOption = null;
+        _answeredWithSmart = false;
         _questionStartedAt = DateTime.now();
       });
+      _prefetchSmartForCurrent();
     } else if (!_isReinforcementRound && _wrongIndices.isNotEmpty) {
       _startReinforcementRound();
     } else {
       _playCompletionCelebrateThenShowResults();
+    }
+  }
+
+  /// Kick off AI distractor generation for the current multiple-choice question
+  /// so options are likely ready by the time the learner reads it. No-op when
+  /// the task isn't routed locally, already cached, or in flight. Falls back
+  /// silently — the random-card baseline is always rendered until AI arrives.
+  void _prefetchSmartForCurrent() {
+    if (_currentIndex >= _questions.length) return;
+    final q = _questions[_currentIndex];
+    if (q.type != QuizQuestionType.multipleChoice) return;
+    final key = _smartKey(q);
+    if (_smartCache.containsKey(key) || _smartInFlight.contains(key)) return;
+    if ((ref.read(localDistractorsAvailableProvider).valueOrNull ?? false) ==
+        false) {
+      return;
+    }
+    _fetchSmartDistractors(q, key);
+  }
+
+  Future<void> _fetchSmartDistractors(QuizQuestion q, String key) async {
+    _smartInFlight.add(key);
+    final correctText = _stripPos(q.reversed ? q.card.term : q.card.definition);
+    try {
+      final distractors = await ref.read(
+        smartDistractorsProvider(
+          SmartDistractorRequest(
+            cardId: q.card.id,
+            term: q.card.term,
+            definition: q.card.definition,
+            correctOption: correctText,
+            reversed: q.reversed,
+          ),
+        ).future,
+      );
+      if (!mounted || distractors == null || distractors.length < 3) return;
+      final texts = [correctText, ...distractors.take(3)]..shuffle(_random);
+      final correctIndex = texts.indexOf(correctText);
+      _smartCache[key] = _SmartMcOptions(texts, correctIndex);
+      // Only repaint to swap in AI options if the learner hasn't answered yet,
+      // so tiles never change out from under a selection.
+      if (_selectedOption == null) setState(() {});
+    } catch (_) {
+      // Fail silent → keep baseline options.
+    } finally {
+      _smartInFlight.remove(key);
     }
   }
 
@@ -442,8 +525,10 @@ class _QuizScreenState extends ConsumerState<QuizScreen>
           .toList();
       _currentIndex = 0;
       _selectedOption = null;
+      _answeredWithSmart = false;
       _questionStartedAt = DateTime.now();
     });
+    _prefetchSmartForCurrent();
   }
 
   void _applyPaceScore(QuizQuestionType type) {
@@ -710,36 +795,66 @@ class _QuizScreenState extends ConsumerState<QuizScreen>
         ),
         _buildPosChips(posTags),
         const SizedBox(height: 32),
-        ...List.generate(4, (i) {
-          final optionCardIndex = question.optionIndices[i];
-          final optionCard = _allCards[optionCardIndex];
-
-          QuizOptionState state = QuizOptionState.normal;
-          if (_selectedOption != null) {
-            if (optionCardIndex == correctIndex) {
-              state = QuizOptionState.correct;
-            } else if (i == _selectedOption) {
-              state = QuizOptionState.incorrect;
-            }
-          }
-
-          // Show answer side (definition or term) as option text, strip POS
-          final optionText = _stripPos(question.reversed
-              ? optionCard.term
-              : optionCard.definition);
-
-          return QuizOptionTile(
-            text: optionText,
-            state: state,
-            onTap: _selectedOption == null
-                ? () => _onMultipleChoiceSelect(i)
-                : null,
-          );
-        }),
+        ..._buildOptionTiles(question, correctIndex),
         if (_shouldOfferDiagnosis(question, correctIndex))
           _buildDiagnosisRow(question, correctIndex, l10n),
       ],
     );
+  }
+
+  /// Builds the four option tiles, preferring AI smart distractors when they
+  /// arrived for this question and otherwise the baseline random-card options.
+  List<Widget> _buildOptionTiles(QuizQuestion question, int correctIndex) {
+    final smart = _smartCache[_smartKey(question)];
+    // Keep showing AI options once they're chosen (even after answering), but
+    // never swap them in *after* the learner answered the baseline set.
+    final useSmart =
+        smart != null && (_selectedOption == null || _answeredWithSmart);
+
+    if (useSmart) {
+      return List.generate(smart.texts.length, (i) {
+        QuizOptionState state = QuizOptionState.normal;
+        if (_selectedOption != null) {
+          if (i == smart.correctIndex) {
+            state = QuizOptionState.correct;
+          } else if (i == _selectedOption) {
+            state = QuizOptionState.incorrect;
+          }
+        }
+        return QuizOptionTile(
+          text: smart.texts[i],
+          state: state,
+          onTap: _selectedOption == null
+              ? () => _onMultipleChoiceSelect(i)
+              : null,
+        );
+      });
+    }
+
+    return List.generate(4, (i) {
+      final optionCardIndex = question.optionIndices[i];
+      final optionCard = _allCards[optionCardIndex];
+
+      QuizOptionState state = QuizOptionState.normal;
+      if (_selectedOption != null) {
+        if (optionCardIndex == correctIndex) {
+          state = QuizOptionState.correct;
+        } else if (i == _selectedOption) {
+          state = QuizOptionState.incorrect;
+        }
+      }
+
+      // Show answer side (definition or term) as option text, strip POS
+      final optionText = _stripPos(
+          question.reversed ? optionCard.term : optionCard.definition);
+
+      return QuizOptionTile(
+        text: optionText,
+        state: state,
+        onTap:
+            _selectedOption == null ? () => _onMultipleChoiceSelect(i) : null,
+      );
+    });
   }
 
   /// True when the learner just answered this multiple-choice question wrong in
@@ -748,6 +863,9 @@ class _QuizScreenState extends ConsumerState<QuizScreen>
   bool _shouldOfferDiagnosis(QuizQuestion question, int correctIndex) {
     if (_selectedOption == null) return false;
     if (_isReinforcementRound || !_confusionAvailable) return false;
+    // L3 needs a real distractor *card* (term + definition) to compare against;
+    // AI string distractors don't map to a card, so skip diagnosis there.
+    if (_answeredWithSmart) return false;
     final chosenCardIndex = question.optionIndices[_selectedOption!];
     return chosenCardIndex != correctIndex;
   }

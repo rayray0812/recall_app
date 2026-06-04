@@ -10,6 +10,7 @@ enum AiTaskType {
   mnemonic, // L2
   confusionDiagnosis, // L3
   exampleSentence, // example-sentence generation for a vocab card
+  smartDistractors, // plausible wrong options for multiple-choice quiz
 }
 
 /// Lifecycle state of an AI operation.

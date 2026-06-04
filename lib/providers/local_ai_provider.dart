@@ -116,10 +116,17 @@ class ConfusionRequest {
       identical(this, other) ||
       other is ConfusionRequest &&
           targetTerm == other.targetTerm &&
-          chosenTerm == other.chosenTerm;
+          targetDefinition == other.targetDefinition &&
+          chosenTerm == other.chosenTerm &&
+          chosenDefinition == other.chosenDefinition;
 
   @override
-  int get hashCode => Object.hash(targetTerm, chosenTerm);
+  int get hashCode => Object.hash(
+        targetTerm,
+        targetDefinition,
+        chosenTerm,
+        chosenDefinition,
+      );
 }
 
 /// L3: lazy provider that explains a quiz confusion.
@@ -138,3 +145,66 @@ final confusionExplanationProvider =
         chosenDefinition: req.chosenDefinition,
       );
     });
+
+/// Whether the smart-distractor enhancement can run right now.
+///
+/// Mirrors [localHintAvailableProvider] for the smartDistractors task. The quiz
+/// uses this to decide whether to attempt AI distractor enrichment, falling
+/// back to random other-card options when false.
+final localDistractorsAvailableProvider =
+    Provider.autoDispose<AsyncValue<bool>>((ref) {
+  return ref
+      .watch(aiRouteProvider(AiTaskType.smartDistractors))
+      .whenData((decision) => decision.isLocal);
+});
+
+/// Argument for [smartDistractorsProvider].
+class SmartDistractorRequest {
+  final String cardId;
+  final String term;
+  final String definition;
+  final String correctOption;
+  final bool reversed;
+  final int count;
+
+  const SmartDistractorRequest({
+    required this.cardId,
+    required this.term,
+    required this.definition,
+    required this.correctOption,
+    required this.reversed,
+    this.count = 3,
+  });
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is SmartDistractorRequest &&
+          cardId == other.cardId &&
+          reversed == other.reversed &&
+          count == other.count;
+
+  @override
+  int get hashCode => Object.hash(cardId, reversed, count);
+}
+
+/// Lazy provider that produces plausible wrong options for a quiz question.
+///
+/// Returns null (→ caller keeps its random-card baseline) when the task isn't
+/// routed locally or the model returns too few usable distractors.
+final smartDistractorsProvider = FutureProvider.autoDispose
+    .family<List<String>?, SmartDistractorRequest>((ref, req) async {
+  final decision = await ref.watch(
+    aiRouteProvider(AiTaskType.smartDistractors).future,
+  );
+  if (!decision.isLocal) return null;
+  final engine = await ref.watch(localLlmEngineProvider.future);
+  return LocalAiService.generateDistractors(
+    engine: engine,
+    term: req.term,
+    definition: req.definition,
+    correctOption: req.correctOption,
+    reversed: req.reversed,
+    count: req.count,
+  );
+});
