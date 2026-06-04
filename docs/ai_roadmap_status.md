@@ -60,7 +60,8 @@
 - [x] **L3 答錯混淆診斷對話框**（`5ff331c`）：選擇題主回合答錯且本地 AI 就緒時，暫停自動前進、顯示「🧠 為什麼會搞混?」按鈕 + 手動「下一步」。點按彈出 `ConfusionDiagnosisDialog`，呼叫 `confusionExplanationProvider` 對比選錯的干擾卡 vs 正解。`localConfusionAvailableProvider` gate、無模型時流程不變。l10n（中/英）+ 3 widget 測試。
 - [x] **智慧干擾選項**（`e0743fa`）：新 `AiTaskType.smartDistractors`（localOnly）。測驗選擇題**懶載入**呼叫本地模型生成似是而非的錯誤選項，就緒才換上；隨機卡選項仍為永遠正確的基準與 fallback，計分不會卡在模型。`LocalAiService.generateDistractors` + `buildDistractorsPrompt`（正/反向）+ `parseDistractorLines`（去編號/項目符號/標籤、去重、排除正解、cap count）+ provider + 8 單元測試。answered-with-AI 時跳過 L3 診斷（無真實干擾卡可對比）。
   - **⚠️ 待重新分流**：依 §2.5 策略，這個高頻任務應改成 cloudPreferred。**但需先寫一個 Groq 雲端干擾選項生成器**（`smartDistractorsProvider` 目前 `!decision.isLocal → return null`，改 tier 後上線時會靜默關閉）。目前先靠電量保護 gate 緩解。下一步：加 `GroqVisionService`/新服務的文字補全干擾選項路徑，再把 tier 改 cloudPreferred。
-- [~] **AI 家教對話**（Socratic，綁 FSRS 弱點卡片）— **暫不做**（見 §2.5）。若做，走 cloudPreferred + 既有 conversation 雲端基礎，不要走 localPreferred（多輪連續本地生成最耗電/發熱、小模型難維持 Socratic）。
+- [x] **AI 家教對話 → 改為「增強現有對話功能」**（`2c8709f`）：不另建 Socratic 家教，而是把既有（雲端 Gemini）的情境對話**綁上 FSRS 弱點**。原本對話目標單字是隨機選；現在依弱點分數（overdue/難度/lapses/relearning/低 stability）weakest-first 排序選詞，練到真正不熟的字，且**零本地耗電**。`weak_term_selector.dart`（純函式 termWeaknessScore + 穩定 orderTermsByWeakness）+ `VocabularyTracker.priorityOrder`（向後相容，null = 原隨機行為）+ provider `_weaknessOrderedTerms`（讀 CardProgress，出錯 fallback 原順序）+ 11 測試。
+  - 後續可再加：對話評分改進、weak-first 選詞加一點隨機性增加變化。
 - [ ] 模式：每個新功能 = 加一個 `AiTaskType` + `LocalAiService` 方法 + prompt builder + provider/widget + 測試（參考 `0d44d8f` 例句的做法）。
 
 ### C. C2 iOS native（需 Xcode + 實機，無法在對話內驗證）
