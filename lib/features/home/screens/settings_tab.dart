@@ -14,6 +14,7 @@ import 'package:recall_app/providers/admin_provider.dart';
 import 'package:recall_app/providers/biometric_provider.dart';
 import 'package:recall_app/providers/ai_provider_provider.dart';
 import 'package:recall_app/providers/ai_runtime_provider.dart';
+import 'package:recall_app/features/home/widgets/ai_usage_card.dart';
 import 'package:recall_app/features/home/widgets/model_manager_card.dart';
 import 'package:recall_app/providers/gemini_key_provider.dart';
 import 'package:recall_app/providers/locale_provider.dart';
@@ -537,6 +538,11 @@ class _SettingsTabState extends ConsumerState<SettingsTab> {
                         setDialogState(() {});
                       },
                     ),
+
+                    const Divider(height: 28),
+
+                    // —— AI 用量與方案（成本閘門 §2.6）——
+                    const AiUsageCard(),
 
                     // —— 進階：手動匯入（僅本機）——
                     if (selectedProvider == AiProvider.gemma)

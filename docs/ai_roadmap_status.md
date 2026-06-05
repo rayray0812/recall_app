@@ -71,7 +71,8 @@ AI 功能上線到學生市場前，必須補齊：
 - [x] **Groq 錯誤訊息不再內嵌 response body**(`groq_completion_service` / `groq_conversation_engine` / `groq_vision_service`):body 仍用於分類,但不進 message/log,避免敏感內容入 debug log(修正 code review P5)。
 - [ ] **provider-attempt 計費**(code review C2):目前「一個產品任務 = 一個配額單位」,但 fallback 失敗轉打第二家 provider 時實際是 2 次 cloud call、配額只記 1。屬可接受的設計取捨(failover 才發生),但精確成本核算需把計費移到「每次 provider dispatch」或記 providerAttempts。
 - [ ] **entitlement 真實來源**：目前 entitlement 為本地設定（無付費/伺服器同步,已在 `ai_entitlement.dart` 標註為 local placeholder）。需接 RevenueCat/StoreKit 或 Supabase entitlement。
-- [ ] **配額耗盡 UI**：blockedQuota 目前靜默回退；面向使用者的任務（對話/拍照）應顯示「額度用盡，升級 Plus」提示。
+- [x] **AI 用量 UI**（`ai_usage_card.dart`,在設定→AI 對話框）：顯示目前方案、今日各雲端任務用量(used/limit + 進度條,耗盡轉紅)、近 24h token 彙總;方案 ChoiceChip 可切換(寫本地 `aiEntitlementProvider`,dev/local placeholder)。3 widget 測試。
+- [ ] **配額耗盡的主動提示**：blockedQuota 目前在各功能靜默回退(隨機選項/離線評分/local coach);用量卡讓使用者「看得到」額度,但對話/拍照當下被擋時仍可加一個「額度用盡,升級 Plus」的 inline 提示(下一步)。
 
 短期不要承諾「所有 AI 免費無限用」。正確承諾是：
 
