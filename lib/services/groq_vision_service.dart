@@ -134,7 +134,8 @@ class GroqVisionService {
 
       if (response.statusCode != 200) {
         final reason = AiErrorClassifier.classifyHttpError(response.statusCode, response.body);
-        throw ScanException(reason, 'Groq API error ${response.statusCode}: ${response.body}');
+        // Classify from the body, but don't embed it in the message/logs.
+        throw ScanException(reason, 'Groq API error ${response.statusCode}');
       }
 
       final json = jsonDecode(response.body) as Map<String, dynamic>;
@@ -212,9 +213,10 @@ class GroqVisionService {
 
       if (response.statusCode != 200) {
         final reason = AiErrorClassifier.classifyHttpError(response.statusCode, response.body);
+        // Classify from the body, but don't embed it in the message/logs.
         throw ScanException(
           reason,
-          'Groq API error ${response.statusCode}: ${response.body}',
+          'Groq API error ${response.statusCode}',
         );
       }
 

@@ -63,11 +63,14 @@ AI 功能上線到學生市場前，必須補齊：
 
 - [x] **entitlement**（`ai_entitlement.dart`）：`AiEntitlement` enum（free/plus/proAi/classroom）+ `aiEntitlementProvider`（Hive 持久化，預設 free，未來接帳務只需改這一處）。
 - [x] **`AiQuotaPolicy`**（純函式，table-driven，無 IO）：`isMetered`（雲端付費任務才計費，本地任務永遠免費）+ per-tier/per-task `dailyLimit`（pro/classroom 無上限）+ `allows` / `remaining`（clamp 0、unlimited=-1）。數字為可調 placeholder。
-- [x] **`AiQuotaService`**（Hive-backed）：以 UTC 日期 bucket 計數，跨日自動歸零；`usageToday` / `canRun` / `remaining` / `consume`（unmetered no-op）。
+- [x] **`AiQuotaService`**（Hive-backed）：以 UTC 日期 bucket 計數，跨日自動歸零；`usageToday` / `canRun`(唯讀,供 UI) / `remaining` / **`tryConsume`(原子化 check+increment)**。記憶體 map 為當日權威值,check 與 increment 之間無 await → 並發呼叫不會同時用掉最後一格(修正 code review C1 race)。新增 6 測試(含並發超量測試)。
+  - ⚠️ **僅本地產品配額,非安全/帳務邊界**:目前在「使用者自備 key」下成本是使用者的,可有效保護;若日後改用 Grasp 自有 server key,必須改由 server 驗證 entitlement。
 - [x] **`AiGateway.decide`**（純函式）：合併 `AiRouteDecision` + entitlement 配額 → `AiGatewayOutcome`（runLocal / runCloud / blockedQuota / unavailable）+ remaining，供 UI 文案（「今天剩 N 次」）。智慧干擾選項雲端路徑已改走 gateway：runCloud 才 `consume` + 呼叫 Groq，blockedQuota/unavailable → null（回退隨機卡基準）。本地執行不計費。新增 14 測試（policy + gateway）。
 - [x] **`ai_usage_events`**：沿用既有 `AiAnalyticsService`（`ai_events`，記 taskType/provider/result/latency/failure_reason）。⚠️ 尚缺 estimated input/output tokens 欄位（待補）。
-- [x] **gateway 全面套用**：四個雲端任務皆已計費。`smartDistractors` 走 `AiGateway.decide`；`photoImport`（`_callAiExtract`：gemma=本地免費、groq/gemini=雲端，配額耗盡 throw `quotaExceeded` 走既有錯誤 UI）、`conversationTurn`（每輪 `canRun`/`consume`，耗盡→`_handleEngineError(quotaExceeded)` 降級成 local coach）、`speakingScore`（`_evaluateTurnAsync`：耗盡→`_evaluateTurnOffline`）皆於雲端 dispatch 點 `canRun` 守門 + `consume`。各自有既有的離線/降級路徑,配額耗盡不會中斷流程。
-- [ ] **entitlement 真實來源**：目前 entitlement 為本地設定（無付費/伺服器同步）。需接 RevenueCat/StoreKit 或 Supabase entitlement。
+- [x] **gateway 全面套用**：四個雲端任務皆於雲端 dispatch 點用 `tryConsume` 原子守門 + 計費。`smartDistractors`(cloud 分支)、`photoImport`(`_callAiExtract`:gemma=本地免費、groq/gemini=雲端,耗盡 throw `quotaExceeded` 走既有錯誤 UI)、`conversationTurn`(每輪,耗盡→`_handleEngineError(quotaExceeded)` 降級 local coach)、`speakingScore`(`_evaluateTurnAsync`,耗盡→`_evaluateTurnOffline`;consume 已改 `await`,修正 code review B1)。各自有既有離線/降級路徑,配額耗盡不會中斷流程。`smartDistractorsAvailableProvider` cloud 分支已加 Groq key 檢查(修正 P2:避免只有 Gemini key 時白做 prefetch)。
+- [x] **Groq 錯誤訊息不再內嵌 response body**(`groq_completion_service` / `groq_conversation_engine` / `groq_vision_service`):body 仍用於分類,但不進 message/log,避免敏感內容入 debug log(修正 code review P5)。
+- [ ] **provider-attempt 計費**(code review C2):目前「一個產品任務 = 一個配額單位」,但 fallback 失敗轉打第二家 provider 時實際是 2 次 cloud call、配額只記 1。屬可接受的設計取捨(failover 才發生),但精確成本核算需把計費移到「每次 provider dispatch」或記 providerAttempts。
+- [ ] **entitlement 真實來源**：目前 entitlement 為本地設定（無付費/伺服器同步,已在 `ai_entitlement.dart` 標註為 local placeholder）。需接 RevenueCat/StoreKit 或 Supabase entitlement。
 - [ ] **配額耗盡 UI**：blockedQuota 目前靜默回退；面向使用者的任務（對話/拍照）應顯示「額度用盡，升級 Plus」提示。
 
 短期不要承諾「所有 AI 免費無限用」。正確承諾是：

@@ -155,14 +155,25 @@ final confusionExplanationProvider = FutureProvider.autoDispose
 /// Unlike the localOnly affordances above, smartDistractors is cloudPreferred
 /// (see §2.5): it runs in the cloud by default and only falls back to the local
 /// engine when offline. So "available" means routed *anywhere* (local or
-/// cloud), not just on-device. The quiz uses this to decide whether to attempt
-/// AI distractor enrichment, falling back to random other-card options when
-/// unavailable.
+/// cloud), not just on-device. For the cloud path we additionally require a Groq
+/// key, because the cloud distractor generator is Groq-only — without it the
+/// quiz would prefetch and always get null, wasting work. The quiz uses this to
+/// decide whether to attempt AI distractor enrichment, falling back to random
+/// other-card options when unavailable.
 final smartDistractorsAvailableProvider =
     Provider.autoDispose<AsyncValue<bool>>((ref) {
-      return ref
-          .watch(aiRouteProvider(AiTaskType.smartDistractors))
-          .whenData((decision) => decision.target != AiRouteTarget.unavailable);
+      return ref.watch(aiRouteProvider(AiTaskType.smartDistractors)).whenData((
+        decision,
+      ) {
+        switch (decision.target) {
+          case AiRouteTarget.unavailable:
+            return false;
+          case AiRouteTarget.cloud:
+            return ref.watch(groqKeyProvider).trim().isNotEmpty;
+          case AiRouteTarget.local:
+            return true;
+        }
+      });
     });
 
 /// Argument for [smartDistractorsProvider].
@@ -222,8 +233,10 @@ final smartDistractorsProvider = FutureProvider.autoDispose
         case AiGatewayOutcome.runCloud:
           final groqKey = ref.watch(groqKeyProvider).trim();
           if (groqKey.isEmpty) return null;
-          // A cloud dispatch consumes one metered unit regardless of result.
-          await quota.consume(task);
+          // Atomically check + consume one metered unit at the dispatch point;
+          // if the quota was just exhausted by a concurrent call, skip to the
+          // random-card baseline rather than over-spending.
+          if (!await quota.tryConsume(entitlement, task)) return null;
           return GroqCompletionService(apiKey: groqKey).generateDistractors(
             term: req.term,
             definition: req.definition,

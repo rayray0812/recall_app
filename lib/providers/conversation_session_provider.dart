@@ -543,19 +543,19 @@ class ConversationSessionNotifier
       ),
     );
 
-    // Each AI turn is a metered cloud call (§2.6). When the daily quota for the
-    // user's entitlement is spent, degrade gracefully to the local coach instead
-    // of calling the cloud — same path as a rate-limit/quota engine error.
-    final quota = ref.read(aiQuotaServiceProvider);
-    final entitlement = ref.read(aiEntitlementProvider);
-    if (!quota.canRun(entitlement, AiTaskType.conversationTurn)) {
-      _handleEngineError(ScanFailureReason.quotaExceeded, text);
-      return;
-    }
-
     try {
       await _respectChatRateLimit();
-      await quota.consume(AiTaskType.conversationTurn);
+      // Each AI turn is a metered cloud call (§2.6). Atomically check + consume
+      // one unit; if the daily quota is spent, degrade gracefully to the local
+      // coach — same path as a rate-limit/quota engine error. NOTE: on failover
+      // the engine may call >1 provider but this counts as one product unit (see
+      // docs §2.6 — provider-attempt accounting is a known follow-up).
+      final quota = ref.read(aiQuotaServiceProvider);
+      final entitlement = ref.read(aiEntitlementProvider);
+      if (!await quota.tryConsume(entitlement, AiTaskType.conversationTurn)) {
+        _handleEngineError(ScanFailureReason.quotaExceeded, text);
+        return;
+      }
       final responseText = await _engine!.generateTurn(
         systemPrompt: systemPrompt,
         history: history,
@@ -655,7 +655,8 @@ class ConversationSessionNotifier
     );
 
     if (addToUi) {
-      _evaluateTurnAsync(newTurn - 1, aiText, text);
+      // Fire-and-forget: scoring runs in the background and updates the turn.
+      unawaited(_evaluateTurnAsync(newTurn - 1, aiText, text));
     }
     if (isEnded) {
       await _writeReviewLogs();
@@ -821,11 +822,11 @@ class ConversationSessionNotifier
 
   /// Write ReviewLog entries for each turn record.
   /// Non-blocking AI scoring for a turn.
-  void _evaluateTurnAsync(
+  Future<void> _evaluateTurnAsync(
     int turnIndex,
     String aiQuestion,
     String userResponse,
-  ) {
+  ) async {
     final current = state.valueOrNull;
     final geminiKey = ref.read(geminiKeyProvider).trim();
     final groqKey = ref.read(groqKeyProvider).trim();
@@ -834,15 +835,14 @@ class ConversationSessionNotifier
       return;
     }
 
-    // Cloud scoring is metered (§2.6); fall back to offline scoring once the
-    // daily speaking-score quota is spent.
+    // Cloud scoring is metered (§2.6); atomically check + consume one unit, and
+    // fall back to offline scoring once the daily speaking-score quota is spent.
     final quota = ref.read(aiQuotaServiceProvider);
     final entitlement = ref.read(aiEntitlementProvider);
-    if (!quota.canRun(entitlement, AiTaskType.speakingScore)) {
+    if (!await quota.tryConsume(entitlement, AiTaskType.speakingScore)) {
       _evaluateTurnOffline(turnIndex, userResponse);
       return;
     }
-    quota.consume(AiTaskType.speakingScore);
 
     _scoreWithFallback(
       aiQuestion: aiQuestion,

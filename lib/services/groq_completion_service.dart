@@ -119,9 +119,11 @@ class GroqCompletionService {
           )
           .timeout(_timeout);
       if (resp.statusCode != 200) {
+        // Classify using the body, but don't put the raw body in the message —
+        // it can end up in debug logs and may contain sensitive content.
         throw ScanException(
           AiErrorClassifier.classifyHttpError(resp.statusCode, resp.body),
-          'Groq error ${resp.statusCode}: ${resp.body}',
+          'Groq error ${resp.statusCode}',
         );
       }
       return parseContent(resp.body);

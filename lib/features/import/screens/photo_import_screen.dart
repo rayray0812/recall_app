@@ -245,25 +245,27 @@ class _PhotoImportScreenState extends ConsumerState<PhotoImportScreen>
     );
     final analytics = AiAnalyticsService();
     // Gemma runs on-device (free); Groq/Gemini are cloud calls, so they are
-    // metered against the daily quota for the user's entitlement (§2.6).
+    // metered against the daily quota for the user's entitlement (§2.6). Use the
+    // atomic check-and-consume so two imports can't both pass the last slot.
     final isCloud = provider != AiProvider.gemma;
-    final quota = ref.read(aiQuotaServiceProvider);
-    final entitlement = ref.read(aiEntitlementProvider);
-    if (isCloud && !quota.canRun(entitlement, AiTaskType.photoImport)) {
-      analytics.logEvent(
-        taskType: task.type,
-        provider: task.provider,
-        success: false,
-        elapsed: task.elapsed,
-        failureReason: ScanFailureReason.quotaExceeded,
-      );
-      throw ScanException(
-        ScanFailureReason.quotaExceeded,
-        'Daily AI photo-import quota reached for your plan.',
-      );
+    if (isCloud) {
+      final quota = ref.read(aiQuotaServiceProvider);
+      final entitlement = ref.read(aiEntitlementProvider);
+      if (!await quota.tryConsume(entitlement, AiTaskType.photoImport)) {
+        analytics.logEvent(
+          taskType: task.type,
+          provider: task.provider,
+          success: false,
+          elapsed: task.elapsed,
+          failureReason: ScanFailureReason.quotaExceeded,
+        );
+        throw ScanException(
+          ScanFailureReason.quotaExceeded,
+          'Daily AI photo-import quota reached for your plan.',
+        );
+      }
     }
     try {
-      if (isCloud) await quota.consume(AiTaskType.photoImport);
       final List<Map<String, String>> result;
       if (provider == AiProvider.gemma) {
         result = await _callGemmaExtract(mode);

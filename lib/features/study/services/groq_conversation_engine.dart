@@ -55,9 +55,11 @@ class GroqConversationEngine implements ConversationEngine {
           )
           .timeout(_timeout);
       if (resp.statusCode != 200) {
+        // Classify using the body, but keep it out of the message/logs — it can
+        // contain sensitive content.
         throw ConversationEngineException(
           AiErrorClassifier.classifyHttpError(resp.statusCode, resp.body),
-          'Groq error ${resp.statusCode}: ${resp.body}',
+          'Groq error ${resp.statusCode}',
         );
       }
       final text = parseChatContent(resp.body);
