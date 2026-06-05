@@ -52,8 +52,6 @@ class ConversationReplySuggestion {
 
 class GeminiService {
   static const _models = ['gemini-2.0-flash-lite', 'gemini-2.0-flash'];
-  static const _chatModels = ['gemini-2.0-flash-lite'];
-  static List<String> get chatModels => List<String>.unmodifiable(_chatModels);
   static const _timeout = Duration(seconds: 30);
   static const maxCards = 300;
   static const _lightweightModels = ['gemini-2.0-flash-lite'];
@@ -431,86 +429,6 @@ class GeminiService {
   }
 
   // -- Conversation Mode --
-
-  /// Starts a chat session for practicing vocabulary.
-  /// Returns a [ChatSession] that maintains history.
-  static ChatSession startConversation({
-    required String apiKey,
-    required List<String> terms,
-    required String difficulty,
-    required int totalTurns,
-    required String scenarioTitle,
-    required String scenarioSetting,
-    required String aiRole,
-    required String userRole,
-    String? chatModel,
-  }) {
-    final normalizedDifficulty = difficulty.toLowerCase().trim();
-    final difficultyRules = switch (normalizedDifficulty) {
-      'easy' =>
-        '''
-Difficulty profile (EASY):
-- Use exactly 1 target word per turn.
-- Keep question very simple (A1-A2 level), one idea only.
-- Prioritize guidance over correction. Do not nitpick grammar.
-- Reply hint must be highly scaffolded and directly reusable.
-''',
-      'hard' =>
-        '''
-Difficulty profile (HARD):
-- Use 2-3 target words per turn.
-- Ask a more specific scenario-based question (B2+ level).
-- If student has mistakes, briefly correct then continue.
-- Reply hint should be shorter and less hand-holding.
-''',
-      _ =>
-        '''
-Difficulty profile (MEDIUM):
-- Use 1-2 target words per turn.
-- Ask practical daily-life question (around B1 level).
-- Give concise correction only when needed.
-- Reply hint should guide but leave room to compose.
-''',
-    };
-
-    final systemPrompt =
-        '''
-You are a vocabulary conversation coach. No greetings, no small talk.
-Target words: ${terms.join(', ')}.
-Difficulty: $normalizedDifficulty. Total turns: $totalTurns.
-Scenario: $scenarioTitle — $scenarioSetting
-Your role: $aiRole. Student role: $userRole. Stay in character the whole session.
-$difficultyRules
-Rules:
-1. Ask exactly ONE concrete, scenario-specific question per turn. Include specific details (item/time/price/quantity). Avoid broad prompts like "Tell me more".
-2. Include at least one target word naturally. Skip words that feel forced; rotate and prioritize unpracticed words.
-3. Provide ONE short "Reply hint" starter the student can complete.
-4. If the student makes an error, correct briefly in one sentence, then continue.
-5. Keep output under 35 words, natural spoken English with contractions.
-6. Output exactly 2 lines: Question: ... / Reply hint: ...
-7. Always speak from $aiRole perspective. Never switch to student perspective.
-8. No greeting on first message. Start directly with a question.
-9. Avoid off-topic questions (psychology/personality/self-esteem).
-10. Sound like a real person, not a robotic tutor.
-11. Respect the turn index from user prompt.
-12. On the final turn, wrap up naturally with a short closing line.
-''';
-
-    final resolvedChatModel = chatModel != null && chatModel.trim().isNotEmpty
-        ? chatModel.trim()
-        : _chatModels.first;
-    final model = GenerativeModel(
-      model: resolvedChatModel,
-      apiKey: apiKey,
-      systemInstruction: Content.system(systemPrompt),
-      generationConfig: GenerationConfig(
-        maxOutputTokens: 120, // Keep responses compact for speed/cost
-        temperature: 0.55,
-      ),
-    );
-
-    return model.startChat();
-  }
 
   /// Generates a random daily-life conversation scenario.
   static Future<ConversationScenario?> generateRandomScenario({
