@@ -15,12 +15,14 @@ import 'package:recall_app/models/card_progress.dart';
 import 'package:recall_app/models/review_log.dart';
 import 'package:recall_app/models/review_session.dart';
 import 'package:recall_app/providers/ai_provider_provider.dart';
+import 'package:recall_app/providers/ai_runtime_provider.dart';
 import 'package:recall_app/providers/auth_provider.dart';
 import 'package:recall_app/providers/conversation_engine_provider.dart';
 import 'package:recall_app/providers/fsrs_provider.dart';
 import 'package:recall_app/providers/gemini_key_provider.dart';
 import 'package:recall_app/providers/stats_provider.dart';
 import 'package:recall_app/providers/study_set_provider.dart';
+import 'package:recall_app/services/ai_task.dart';
 import 'package:recall_app/services/gemini_service.dart';
 import 'package:recall_app/services/outcome_adapter.dart';
 import 'package:uuid/uuid.dart';
@@ -541,8 +543,19 @@ class ConversationSessionNotifier
       ),
     );
 
+    // Each AI turn is a metered cloud call (§2.6). When the daily quota for the
+    // user's entitlement is spent, degrade gracefully to the local coach instead
+    // of calling the cloud — same path as a rate-limit/quota engine error.
+    final quota = ref.read(aiQuotaServiceProvider);
+    final entitlement = ref.read(aiEntitlementProvider);
+    if (!quota.canRun(entitlement, AiTaskType.conversationTurn)) {
+      _handleEngineError(ScanFailureReason.quotaExceeded, text);
+      return;
+    }
+
     try {
       await _respectChatRateLimit();
+      await quota.consume(AiTaskType.conversationTurn);
       final responseText = await _engine!.generateTurn(
         systemPrompt: systemPrompt,
         history: history,
@@ -820,6 +833,16 @@ class ConversationSessionNotifier
       _evaluateTurnOffline(turnIndex, userResponse);
       return;
     }
+
+    // Cloud scoring is metered (§2.6); fall back to offline scoring once the
+    // daily speaking-score quota is spent.
+    final quota = ref.read(aiQuotaServiceProvider);
+    final entitlement = ref.read(aiEntitlementProvider);
+    if (!quota.canRun(entitlement, AiTaskType.speakingScore)) {
+      _evaluateTurnOffline(turnIndex, userResponse);
+      return;
+    }
+    quota.consume(AiTaskType.speakingScore);
 
     _scoreWithFallback(
       aiQuestion: aiQuestion,

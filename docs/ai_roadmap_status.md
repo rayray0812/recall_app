@@ -1,7 +1,7 @@
 # Grasp AI 功能 — 現況與待辦 Roadmap
 
 > **這份文件的用途**：清空對話後接續開發的單一入口。記錄本地優先 AI 的整體進度、
-> 還沒做的功能、以及只能在實機驗證的待辦。最後更新：2026-06-05（智慧干擾選項 cloudPreferred + Groq 生成器；AI 成本閘門核心 entitlement/quota/gateway 完成，見 §2.5/§2.6/§B）。
+> 還沒做的功能、以及只能在實機驗證的待辦。最後更新：2026-06-05（智慧干擾選項 cloudPreferred + Groq 生成器；AI 成本閘門 entitlement/quota/gateway 完成且四個雲端任務全面計費，見 §2.5/§2.6/§B）。
 >
 > 相關文件：`ai_strategy_plan.md`（本地優先策略總綱）、`ai_model_engine_plan.md`
 > （模型選型 + LiteRT-LM 引擎遷移）。本檔是「目前做到哪 / 接下來做什麼」的彙整。
@@ -66,7 +66,7 @@ AI 功能上線到學生市場前，必須補齊：
 - [x] **`AiQuotaService`**（Hive-backed）：以 UTC 日期 bucket 計數，跨日自動歸零；`usageToday` / `canRun` / `remaining` / `consume`（unmetered no-op）。
 - [x] **`AiGateway.decide`**（純函式）：合併 `AiRouteDecision` + entitlement 配額 → `AiGatewayOutcome`（runLocal / runCloud / blockedQuota / unavailable）+ remaining，供 UI 文案（「今天剩 N 次」）。智慧干擾選項雲端路徑已改走 gateway：runCloud 才 `consume` + 呼叫 Groq，blockedQuota/unavailable → null（回退隨機卡基準）。本地執行不計費。新增 14 測試（policy + gateway）。
 - [x] **`ai_usage_events`**：沿用既有 `AiAnalyticsService`（`ai_events`，記 taskType/provider/result/latency/failure_reason）。⚠️ 尚缺 estimated input/output tokens 欄位（待補）。
-- [ ] **gateway 全面套用**：目前只有 `smartDistractors` 雲端路徑走 gateway。`conversationTurn` / `photoImport` / `speakingScore` 仍由各自服務直接呼叫 provider，需逐一改走 gateway + `consume`。
+- [x] **gateway 全面套用**：四個雲端任務皆已計費。`smartDistractors` 走 `AiGateway.decide`；`photoImport`（`_callAiExtract`：gemma=本地免費、groq/gemini=雲端，配額耗盡 throw `quotaExceeded` 走既有錯誤 UI）、`conversationTurn`（每輪 `canRun`/`consume`，耗盡→`_handleEngineError(quotaExceeded)` 降級成 local coach）、`speakingScore`（`_evaluateTurnAsync`：耗盡→`_evaluateTurnOffline`）皆於雲端 dispatch 點 `canRun` 守門 + `consume`。各自有既有的離線/降級路徑,配額耗盡不會中斷流程。
 - [ ] **entitlement 真實來源**：目前 entitlement 為本地設定（無付費/伺服器同步）。需接 RevenueCat/StoreKit 或 Supabase entitlement。
 - [ ] **配額耗盡 UI**：blockedQuota 目前靜默回退；面向使用者的任務（對話/拍照）應顯示「額度用盡，升級 Plus」提示。
 
@@ -104,7 +104,7 @@ AI 功能上線到學生市場前，必須補齊：
 ### D. 健壯性 follow-up
 - [ ] **背景下載 kill-resume tracking**：目前用 awaited `download()`,app 被系統殺掉後不會自動續傳。要改 `enqueue` + `FileDownloader().trackTasks()` + listener + 啟動時掃描未完成任務。
 - [ ] 模型升級路徑：Gemma 4 E4B（高階機）、Qwen3 更大尺寸（等 litert-community 有現成檔）。
-- [~] **AiGateway/Quota**：核心已完成（見 §2.6）。剩 conversationTurn/photoImport/speakingScore 改走 gateway + token 用量欄位。
+- [~] **AiGateway/Quota**：核心 + 四個雲端任務計費皆完成（見 §2.6）。剩 usage event 的 estimated token 欄位 + entitlement 真實來源（付費/伺服器）+ 配額耗盡升級 UI。
 - [ ] **ExamPlan 連動**：AI 對話與例句應優先使用 `ExamPlan` 的 examType / targetLevel / weak terms。
 
 ## 4. 重要提醒（給接手的對話）
