@@ -22,6 +22,8 @@ class AppConstants {
   static const String settingGemmaLocalModelPathKey = 'gemma_local_model_path';
   static const String settingAiEventsKey = 'ai_events';
   static const String settingAiPrivacyModeKey = 'ai_privacy_mode';
+  static const String settingAiEntitlementKey = 'ai_entitlement';
+  static const String settingAiQuotaKey = 'ai_quota';
 
   static const int maxCardsPerSet = 2000;
   static const int defaultNewCardsPerDay = 20;

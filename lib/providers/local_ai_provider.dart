@@ -1,6 +1,7 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:recall_app/providers/ai_provider_provider.dart';
 import 'package:recall_app/providers/ai_runtime_provider.dart';
+import 'package:recall_app/services/ai/ai_gateway.dart';
 import 'package:recall_app/services/ai/ai_router.dart';
 import 'package:recall_app/services/ai_task.dart';
 import 'package:recall_app/services/groq_completion_service.dart';
@@ -197,35 +198,51 @@ class SmartDistractorRequest {
 /// Lazy provider that produces plausible wrong options for a quiz question.
 ///
 /// smartDistractors is cloudPreferred, so this routes to Groq by default and
-/// only uses the on-device engine as an offline fallback. Returns null (→ caller
-/// keeps its random-card baseline) when the task is unavailable, no Groq key is
-/// set for the cloud path, or the model returns too few usable distractors.
+/// only uses the on-device engine as an offline fallback. Cloud calls pass
+/// through [AiGateway], which enforces the entitlement's daily quota (§2.6) —
+/// once exhausted the call is skipped. Returns null (→ caller keeps its
+/// random-card baseline) when the task is unavailable, quota is exhausted, no
+/// Groq key is set for the cloud path, or the model returns too few usable
+/// distractors.
 final smartDistractorsProvider = FutureProvider.autoDispose
     .family<List<String>?, SmartDistractorRequest>((ref, req) async {
-      final decision = await ref.watch(
-        aiRouteProvider(AiTaskType.smartDistractors).future,
+      const task = AiTaskType.smartDistractors;
+      final route = await ref.watch(aiRouteProvider(task).future);
+      final entitlement = ref.watch(aiEntitlementProvider);
+      final quota = ref.watch(aiQuotaServiceProvider);
+
+      final gw = AiGateway.decide(
+        route: route,
+        entitlement: entitlement,
+        type: task,
+        usedToday: quota.usageToday(task),
       );
-      if (decision.isCloud) {
-        final groqKey = ref.watch(groqKeyProvider).trim();
-        if (groqKey.isEmpty) return null;
-        return GroqCompletionService(apiKey: groqKey).generateDistractors(
-          term: req.term,
-          definition: req.definition,
-          correctOption: req.correctOption,
-          reversed: req.reversed,
-          count: req.count,
-        );
+
+      switch (gw.outcome) {
+        case AiGatewayOutcome.runCloud:
+          final groqKey = ref.watch(groqKeyProvider).trim();
+          if (groqKey.isEmpty) return null;
+          // A cloud dispatch consumes one metered unit regardless of result.
+          await quota.consume(task);
+          return GroqCompletionService(apiKey: groqKey).generateDistractors(
+            term: req.term,
+            definition: req.definition,
+            correctOption: req.correctOption,
+            reversed: req.reversed,
+            count: req.count,
+          );
+        case AiGatewayOutcome.runLocal:
+          final engine = await ref.watch(localLlmEngineProvider.future);
+          return LocalAiService.generateDistractors(
+            engine: engine,
+            term: req.term,
+            definition: req.definition,
+            correctOption: req.correctOption,
+            reversed: req.reversed,
+            count: req.count,
+          );
+        case AiGatewayOutcome.blockedQuota:
+        case AiGatewayOutcome.unavailable:
+          return null;
       }
-      if (decision.isLocal) {
-        final engine = await ref.watch(localLlmEngineProvider.future);
-        return LocalAiService.generateDistractors(
-          engine: engine,
-          term: req.term,
-          definition: req.definition,
-          correctOption: req.correctOption,
-          reversed: req.reversed,
-          count: req.count,
-        );
-      }
-      return null;
     });

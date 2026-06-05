@@ -1,7 +1,7 @@
 # Grasp AI 功能 — 現況與待辦 Roadmap
 
 > **這份文件的用途**：清空對話後接續開發的單一入口。記錄本地優先 AI 的整體進度、
-> 還沒做的功能、以及只能在實機驗證的待辦。最後更新：2026-06-05（智慧干擾選項重新分流為 cloudPreferred + Groq 雲端生成器完成，見 §2.5/§B）。
+> 還沒做的功能、以及只能在實機驗證的待辦。最後更新：2026-06-05（智慧干擾選項 cloudPreferred + Groq 生成器；AI 成本閘門核心 entitlement/quota/gateway 完成，見 §2.5/§2.6/§B）。
 >
 > 相關文件：`ai_strategy_plan.md`（本地優先策略總綱）、`ai_model_engine_plan.md`
 > （模型選型 + LiteRT-LM 引擎遷移）。本檔是「目前做到哪 / 接下來做什麼」的彙整。
@@ -61,10 +61,14 @@ AI 的角色是補強 FSRS 與 ExamPlan：
 ### 2.6 商業化與成本閘門（新增）
 AI 功能上線到學生市場前，必須補齊：
 
-- `AiGatewayService`：統一 route、provider fallback、safety、analytics。
-- `AiQuotaService`：每日免費額度、Plus/Pro AI 額度、用量耗盡降級。
-- `ai_usage_events`：記錄 taskType、provider、estimated input/output tokens、latency、result/failure。
-- entitlement：free / plus / pro_ai / classroom。
+- [x] **entitlement**（`ai_entitlement.dart`）：`AiEntitlement` enum（free/plus/proAi/classroom）+ `aiEntitlementProvider`（Hive 持久化，預設 free，未來接帳務只需改這一處）。
+- [x] **`AiQuotaPolicy`**（純函式，table-driven，無 IO）：`isMetered`（雲端付費任務才計費，本地任務永遠免費）+ per-tier/per-task `dailyLimit`（pro/classroom 無上限）+ `allows` / `remaining`（clamp 0、unlimited=-1）。數字為可調 placeholder。
+- [x] **`AiQuotaService`**（Hive-backed）：以 UTC 日期 bucket 計數，跨日自動歸零；`usageToday` / `canRun` / `remaining` / `consume`（unmetered no-op）。
+- [x] **`AiGateway.decide`**（純函式）：合併 `AiRouteDecision` + entitlement 配額 → `AiGatewayOutcome`（runLocal / runCloud / blockedQuota / unavailable）+ remaining，供 UI 文案（「今天剩 N 次」）。智慧干擾選項雲端路徑已改走 gateway：runCloud 才 `consume` + 呼叫 Groq，blockedQuota/unavailable → null（回退隨機卡基準）。本地執行不計費。新增 14 測試（policy + gateway）。
+- [x] **`ai_usage_events`**：沿用既有 `AiAnalyticsService`（`ai_events`，記 taskType/provider/result/latency/failure_reason）。⚠️ 尚缺 estimated input/output tokens 欄位（待補）。
+- [ ] **gateway 全面套用**：目前只有 `smartDistractors` 雲端路徑走 gateway。`conversationTurn` / `photoImport` / `speakingScore` 仍由各自服務直接呼叫 provider，需逐一改走 gateway + `consume`。
+- [ ] **entitlement 真實來源**：目前 entitlement 為本地設定（無付費/伺服器同步）。需接 RevenueCat/StoreKit 或 Supabase entitlement。
+- [ ] **配額耗盡 UI**：blockedQuota 目前靜默回退；面向使用者的任務（對話/拍照）應顯示「額度用盡，升級 Plus」提示。
 
 短期不要承諾「所有 AI 免費無限用」。正確承諾是：
 
@@ -100,7 +104,7 @@ AI 功能上線到學生市場前，必須補齊：
 ### D. 健壯性 follow-up
 - [ ] **背景下載 kill-resume tracking**：目前用 awaited `download()`,app 被系統殺掉後不會自動續傳。要改 `enqueue` + `FileDownloader().trackTasks()` + listener + 啟動時掃描未完成任務。
 - [ ] 模型升級路徑：Gemma 4 E4B（高階機）、Qwen3 更大尺寸（等 litert-community 有現成檔）。
-- [ ] **AiGateway/Quota**：新增統一 AI 閘門，所有雲端 AI 任務都必須記錄用量與成本 bucket。
+- [~] **AiGateway/Quota**：核心已完成（見 §2.6）。剩 conversationTurn/photoImport/speakingScore 改走 gateway + token 用量欄位。
 - [ ] **ExamPlan 連動**：AI 對話與例句應優先使用 `ExamPlan` 的 examType / targetLevel / weak terms。
 
 ## 4. 重要提醒（給接手的對話）

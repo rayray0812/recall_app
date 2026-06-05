@@ -7,7 +7,9 @@ import 'package:recall_app/core/constants/app_constants.dart';
 import 'package:recall_app/providers/ai_provider_provider.dart';
 import 'package:recall_app/providers/gemini_key_provider.dart';
 import 'package:recall_app/services/ai/ai_capability_service.dart';
+import 'package:recall_app/services/ai/ai_entitlement.dart';
 import 'package:recall_app/services/ai/ai_model_catalog.dart';
+import 'package:recall_app/services/ai/ai_quota_service.dart';
 import 'package:recall_app/services/ai/ai_router.dart';
 import 'package:recall_app/services/ai/device_power_policy.dart';
 import 'package:recall_app/services/ai/local_llm_engine.dart';
@@ -30,6 +32,55 @@ final aiCapabilityProvider = FutureProvider<AiCapability>((ref) async {
 final modelManagerProvider = Provider<ModelManagerService>((ref) {
   final manager = ModelManagerService();
   return manager;
+});
+
+/// The user's AI entitlement tier (gates daily cloud-AI quota, see §2.6).
+///
+/// Persisted in the settings box; defaults to [AiEntitlement.free]. For now this
+/// is set locally — billing/server entitlement sync is future work, but the
+/// gateway already reads from here so wiring real entitlements later is a
+/// one-place change.
+class AiEntitlementNotifier extends StateNotifier<AiEntitlement> {
+  AiEntitlementNotifier() : super(AiEntitlement.free) {
+    _load();
+  }
+
+  void _load() {
+    try {
+      final box = Hive.box(AppConstants.hiveSettingsBox);
+      final name = box.get(AppConstants.settingAiEntitlementKey) as String?;
+      if (name != null) {
+        state = AiEntitlement.values.firstWhere(
+          (e) => e.name == name,
+          orElse: () => AiEntitlement.free,
+        );
+      }
+    } catch (e) {
+      debugPrint('AI entitlement load failed: $e');
+      state = AiEntitlement.free;
+    }
+  }
+
+  Future<void> setEntitlement(AiEntitlement entitlement) async {
+    state = entitlement;
+    try {
+      await Hive.box(
+        AppConstants.hiveSettingsBox,
+      ).put(AppConstants.settingAiEntitlementKey, entitlement.name);
+    } catch (e) {
+      debugPrint('AI entitlement save failed: $e');
+    }
+  }
+}
+
+final aiEntitlementProvider =
+    StateNotifierProvider<AiEntitlementNotifier, AiEntitlement>(
+      (ref) => AiEntitlementNotifier(),
+    );
+
+/// Daily cloud-AI usage tracker + quota enforcement (Hive-backed).
+final aiQuotaServiceProvider = Provider<AiQuotaService>((ref) {
+  return AiQuotaService();
 });
 
 /// Whether the user enabled privacy mode (force on-device, never use cloud).
