@@ -1,15 +1,88 @@
+import 'dart:convert';
+
 import 'package:flutter_test/flutter_test.dart';
+import 'package:recall_app/services/ai/ai_capability_service.dart';
 import 'package:recall_app/services/ai/ai_router.dart';
 import 'package:recall_app/services/ai_task.dart';
+import 'package:recall_app/services/groq_completion_service.dart';
 import 'package:recall_app/services/local_ai_service.dart';
 
 void main() {
   group('AiRouter.tierFor(smartDistractors)', () {
-    test('is localOnly (privacy-sensitive, on-device)', () {
+    test('is cloudPreferred (high-frequency → spare the battery, §2.5)', () {
       expect(
         AiRouter.tierFor(AiTaskType.smartDistractors),
-        AiTaskTier.localOnly,
+        AiTaskTier.cloudPreferred,
       );
+    });
+
+    test('cloudPreferred routes to cloud when online + cloud configured', () {
+      final decision = AiRouter.route(
+        type: AiTaskType.smartDistractors,
+        capability: const AiCapability(
+          platform: AiPlatform.android,
+          totalRamMb: 8000,
+          appleFoundationModels: false,
+        ),
+        localModelReady: true,
+        online: true,
+        privacyMode: false,
+        cloudConfigured: true,
+      );
+      expect(decision.target, AiRouteTarget.cloud);
+    });
+
+    test('falls back to local engine when offline', () {
+      final decision = AiRouter.route(
+        type: AiTaskType.smartDistractors,
+        capability: const AiCapability(
+          platform: AiPlatform.android,
+          totalRamMb: 8000,
+          appleFoundationModels: false,
+        ),
+        localModelReady: true,
+        online: false,
+        privacyMode: false,
+        cloudConfigured: true,
+      );
+      expect(decision.target, AiRouteTarget.local);
+    });
+  });
+
+  group('GroqCompletionService.buildBody', () {
+    test('wraps the prompt as a single user message with the model', () {
+      final body = GroqCompletionService.buildBody(
+        model: 'llama-3.3-70b-versatile',
+        prompt: 'hello',
+        temperature: 0.8,
+        maxTokens: 160,
+      );
+      expect(body['model'], 'llama-3.3-70b-versatile');
+      expect(body['max_tokens'], 160);
+      final messages = body['messages'] as List;
+      expect(messages, hasLength(1));
+      expect(messages.first, {'role': 'user', 'content': 'hello'});
+    });
+  });
+
+  group('GroqCompletionService.parseContent', () {
+    test('extracts assistant content from a chat completion body', () {
+      final raw = jsonEncode({
+        'choices': [
+          {
+            'message': {'content': '永久的\n快速的\n巨大的'},
+          },
+        ],
+      });
+      expect(
+        GroqCompletionService.parseContent(raw),
+        '永久的\n快速的\n巨大的',
+      );
+    });
+
+    test('returns empty string on malformed body', () {
+      expect(GroqCompletionService.parseContent('not json'), '');
+      expect(GroqCompletionService.parseContent('{"choices":[]}'), '');
     });
   });
 

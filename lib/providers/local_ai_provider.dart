@@ -1,6 +1,9 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:recall_app/providers/ai_provider_provider.dart';
 import 'package:recall_app/providers/ai_runtime_provider.dart';
+import 'package:recall_app/services/ai/ai_router.dart';
 import 'package:recall_app/services/ai_task.dart';
+import 'package:recall_app/services/groq_completion_service.dart';
 import 'package:recall_app/services/local_ai_service.dart';
 
 /// Whether the L1 review-hint affordance can run right now.
@@ -148,14 +151,17 @@ final confusionExplanationProvider = FutureProvider.autoDispose
 
 /// Whether the smart-distractor enhancement can run right now.
 ///
-/// Mirrors [localHintAvailableProvider] for the smartDistractors task. The quiz
-/// uses this to decide whether to attempt AI distractor enrichment, falling
-/// back to random other-card options when false.
-final localDistractorsAvailableProvider =
+/// Unlike the localOnly affordances above, smartDistractors is cloudPreferred
+/// (see §2.5): it runs in the cloud by default and only falls back to the local
+/// engine when offline. So "available" means routed *anywhere* (local or
+/// cloud), not just on-device. The quiz uses this to decide whether to attempt
+/// AI distractor enrichment, falling back to random other-card options when
+/// unavailable.
+final smartDistractorsAvailableProvider =
     Provider.autoDispose<AsyncValue<bool>>((ref) {
       return ref
           .watch(aiRouteProvider(AiTaskType.smartDistractors))
-          .whenData((decision) => decision.isLocal);
+          .whenData((decision) => decision.target != AiRouteTarget.unavailable);
     });
 
 /// Argument for [smartDistractorsProvider].
@@ -190,21 +196,36 @@ class SmartDistractorRequest {
 
 /// Lazy provider that produces plausible wrong options for a quiz question.
 ///
-/// Returns null (→ caller keeps its random-card baseline) when the task isn't
-/// routed locally or the model returns too few usable distractors.
+/// smartDistractors is cloudPreferred, so this routes to Groq by default and
+/// only uses the on-device engine as an offline fallback. Returns null (→ caller
+/// keeps its random-card baseline) when the task is unavailable, no Groq key is
+/// set for the cloud path, or the model returns too few usable distractors.
 final smartDistractorsProvider = FutureProvider.autoDispose
     .family<List<String>?, SmartDistractorRequest>((ref, req) async {
       final decision = await ref.watch(
         aiRouteProvider(AiTaskType.smartDistractors).future,
       );
-      if (!decision.isLocal) return null;
-      final engine = await ref.watch(localLlmEngineProvider.future);
-      return LocalAiService.generateDistractors(
-        engine: engine,
-        term: req.term,
-        definition: req.definition,
-        correctOption: req.correctOption,
-        reversed: req.reversed,
-        count: req.count,
-      );
+      if (decision.isCloud) {
+        final groqKey = ref.watch(groqKeyProvider).trim();
+        if (groqKey.isEmpty) return null;
+        return GroqCompletionService(apiKey: groqKey).generateDistractors(
+          term: req.term,
+          definition: req.definition,
+          correctOption: req.correctOption,
+          reversed: req.reversed,
+          count: req.count,
+        );
+      }
+      if (decision.isLocal) {
+        final engine = await ref.watch(localLlmEngineProvider.future);
+        return LocalAiService.generateDistractors(
+          engine: engine,
+          term: req.term,
+          definition: req.definition,
+          correctOption: req.correctOption,
+          reversed: req.reversed,
+          count: req.count,
+        );
+      }
+      return null;
     });

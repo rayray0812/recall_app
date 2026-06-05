@@ -463,7 +463,7 @@ class _QuizScreenState extends ConsumerState<QuizScreen>
     if (q.type != QuizQuestionType.multipleChoice) return;
     final key = _smartKey(q);
     if (_smartCache.containsKey(key) || _smartInFlight.contains(key)) return;
-    if ((ref.read(localDistractorsAvailableProvider).valueOrNull ?? false) ==
+    if ((ref.read(smartDistractorsAvailableProvider).valueOrNull ?? false) ==
         false) {
       return;
     }

@@ -48,13 +48,16 @@ class AiRouter {
       AiTaskType.reviewHint ||
       AiTaskType.mnemonic ||
       AiTaskType.confusionDiagnosis ||
-      AiTaskType.exampleSentence ||
-      AiTaskType.smartDistractors => AiTaskTier.localOnly,
+      AiTaskType.exampleSentence => AiTaskTier.localOnly,
       // Medium tasks: prefer local, cloud as fallback.
       AiTaskType.photoImport ||
       AiTaskType.speakingScore => AiTaskTier.localPreferred,
-      // Long / multi-turn: prefer cloud, local fallback when offline.
-      AiTaskType.conversationTurn => AiTaskTier.cloudPreferred,
+      // High-frequency / heavy tasks: prefer cloud (free Groq) to spare the
+      // battery, fall back to the local engine when offline. smartDistractors
+      // fires on every multiple-choice question — the biggest on-device
+      // power-drain risk — so it leads the cloud-first split (see §2.5).
+      AiTaskType.conversationTurn ||
+      AiTaskType.smartDistractors => AiTaskTier.cloudPreferred,
     };
   }
 

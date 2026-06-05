@@ -1,17 +1,24 @@
 # Grasp AI 功能 — 現況與待辦 Roadmap
 
 > **這份文件的用途**：清空對話後接續開發的單一入口。記錄本地優先 AI 的整體進度、
-> 還沒做的功能、以及只能在實機驗證的待辦。最後更新：2026-06-04（L2/L3/智慧干擾完成；策略轉向「重新分流+加保護」見 §2.5）。
+> 還沒做的功能、以及只能在實機驗證的待辦。最後更新：2026-06-05（智慧干擾選項重新分流為 cloudPreferred + Groq 雲端生成器完成，見 §2.5/§B）。
 >
 > 相關文件：`ai_strategy_plan.md`（本地優先策略總綱）、`ai_model_engine_plan.md`
 > （模型選型 + LiteRT-LM 引擎遷移）。本檔是「目前做到哪 / 接下來做什麼」的彙整。
 
 ---
 
-## 0. 核心定位（不變的北極星）
-**第一個完全免費、離線、隱私優先的 AI 記憶 app。** 本地模型優先，雲端僅 fallback。
-差異化：Quizlet AI 鎖付費、Anki 要自填 key、其他都上傳雲端 → 我們免費 + 資料不離手機
-（對未成年族群同時是合規加分）。
+## 0. 核心定位（2026-06-04 更新）
+AI 不再單獨作為「免費離線」賣點，而是服務新的產品主線：
+
+> **台灣考試導向的 AI 主動回想教練。**
+
+AI 的角色是補強 FSRS 與 ExamPlan：
+- 短、低頻、隱私敏感任務：本地優先，保留「資料不離手機」賣點。
+- 高頻、重型、品質敏感任務：雲端優先，受 quota / entitlement / cost logging 控制。
+- 所有 AI 產出都應回到學習閉環：例句、答錯診斷、弱點字對話、考試 readiness。
+
+產品文件主入口：`docs/product_master_plan.md`。
 
 ## 1. 架構總覽（程式碼位置）
 所有 AI 路由基礎建設在 `lib/services/ai/`：
@@ -24,7 +31,10 @@
 - Native：`android/.../OnDeviceAiChannel.kt`（LiteRT-LM：checkModel/runInference/unloadModel/totalRamMb）。
 - 既有任務服務：`local_ai_service.dart`（L1 提示 / L2 口訣 / L3 混淆診斷 / 例句），prompt builders + cleaners 有單元測試。
 
-**路由原則**：短/高頻/隱私 → localOnly（提示、口訣、診斷、例句）；拍照建卡、口說評分 → localPreferred；對話 → cloudPreferred。`localLlmEngineProvider` 先用使用者明確選的模型，否則 fallback 推薦模型。
+**路由原則（修正版）**：
+- localOnly/localPreferred：L1 提示、L2 口訣、L3 診斷、短例句。這些是使用者主動點、頻率低、隱私敏感的任務。
+- cloudPreferred：AI 對話、智慧干擾選項、批量建卡、長摘要。這些任務重品質/速度/穩定，不應預設消耗手機電力。
+- 所有雲端任務必須先經過未來的 `AiGatewayService` + `AiQuotaService`，不能由 UI 直接呼叫 provider。
 
 ## 2. 已完成 ✅（commit 參考）
 - **C1 路由基礎建設**（`e95c853`）：engine 介面 + capability + catalog + manager + router + 22 測試。
@@ -48,6 +58,18 @@
 - **AI 家教暫不做**（原 roadmap B 最後一項）。決定：若日後做，走 **cloudPreferred**（不是 localPreferred），用既有 conversation 雲端基礎。
 - **核心未驗證假設**：沒有人在實機跑過這些本地模型，延遲/發熱/品質全未知。**在 A 段實機驗證之前，不該再加更多本地 AI 功能。**
 
+### 2.6 商業化與成本閘門（新增）
+AI 功能上線到學生市場前，必須補齊：
+
+- `AiGatewayService`：統一 route、provider fallback、safety、analytics。
+- `AiQuotaService`：每日免費額度、Plus/Pro AI 額度、用量耗盡降級。
+- `ai_usage_events`：記錄 taskType、provider、estimated input/output tokens、latency、result/failure。
+- entitlement：free / plus / pro_ai / classroom。
+
+短期不要承諾「所有 AI 免費無限用」。正確承諾是：
+
+> 核心記憶功能免費；高成本 AI 功能有免費額度，重度使用需 Plus/Pro AI。
+
 ### A. 實機驗證（只能你在電腦/手機做，擋住後續）
 - [ ] **LiteRT-LM native build**：`flutter run` 驗證 `OnDeviceAiChannel.kt` 編得過、能跑。VERIFY 點：`SamplerConfig(topK,topP,temperature)` 欄位、`extractText`/`message.text`、`litertlm-android:0.12.0` 版號、`Backend.CPU()`。
 - [ ] **模型下載**：設定→AI→本機→下載 Qwen3 0.6B（614MB，先測流程）；確認鎖屏續傳、通知列進度。
@@ -59,9 +81,16 @@
 - [x] **L2 口訣按鈕**（`cd3a77b`）：🧠 口訣 pill 加在 SRS 複習翻面後（評分按鈕上方），點擊呼叫 `mnemonicProvider` 顯示口訣 bubble。`localMnemonicAvailableProvider` gate 顯示、fail-silent。l10n（中/英）+ 3 widget 測試。
 - [x] **L3 答錯混淆診斷對話框**（`5ff331c`）：選擇題主回合答錯且本地 AI 就緒時，暫停自動前進、顯示「🧠 為什麼會搞混?」按鈕 + 手動「下一步」。點按彈出 `ConfusionDiagnosisDialog`，呼叫 `confusionExplanationProvider` 對比選錯的干擾卡 vs 正解。`localConfusionAvailableProvider` gate、無模型時流程不變。l10n（中/英）+ 3 widget 測試。
 - [x] **智慧干擾選項**（`e0743fa`）：新 `AiTaskType.smartDistractors`（localOnly）。測驗選擇題**懶載入**呼叫本地模型生成似是而非的錯誤選項，就緒才換上；隨機卡選項仍為永遠正確的基準與 fallback，計分不會卡在模型。`LocalAiService.generateDistractors` + `buildDistractorsPrompt`（正/反向）+ `parseDistractorLines`（去編號/項目符號/標籤、去重、排除正解、cap count）+ provider + 8 單元測試。answered-with-AI 時跳過 L3 診斷（無真實干擾卡可對比）。
-  - **⚠️ 待重新分流**：依 §2.5 策略，這個高頻任務應改成 cloudPreferred。**但需先寫一個 Groq 雲端干擾選項生成器**（`smartDistractorsProvider` 目前 `!decision.isLocal → return null`，改 tier 後上線時會靜默關閉）。目前先靠電量保護 gate 緩解。下一步：加 `GroqVisionService`/新服務的文字補全干擾選項路徑，再把 tier 改 cloudPreferred。
+  - [x] **重新分流完成**：`smartDistractors` tier 改為 **cloudPreferred**（線上→Groq 雲端、離線→本地引擎 fallback）。新 `GroqCompletionService`（OpenAI 相容 chat completions，純 `buildBody`/`parseContent` 可測；`generateDistractors` 復用 `LocalAiService.buildDistractorsPrompt`/`parseDistractorLines` 使本地/雲端產出格式一致，並記 AiAnalytics）。`smartDistractorsProvider` 改為 cloud 分支（無 Groq key→null）/ local 分支 / unavailable→null。`localDistractorsAvailableProvider` 更名 `smartDistractorsAvailableProvider`（判斷 `target != unavailable`，不再只看 isLocal）。電量保護 gate 仍適用於離線本地 fallback。新增 5 測試（tier=cloudPreferred、cloud/offline 路由、buildBody、parseContent）。
+    - 後續：若使用者只填 Gemini key（未填 Groq），雲端干擾選項目前不會啟用（僅 Groq 路徑）；要支援 Gemini 雲端干擾可再加。雲端干擾品質需實機/填 key 驗證。
 - [x] **AI 家教對話 → 改為「增強現有對話功能」**（`2c8709f`）：不另建 Socratic 家教，而是把既有（雲端 Gemini）的情境對話**綁上 FSRS 弱點**。原本對話目標單字是隨機選；現在依弱點分數（overdue/難度/lapses/relearning/低 stability）weakest-first 排序選詞，練到真正不熟的字，且**零本地耗電**。`weak_term_selector.dart`（純函式 termWeaknessScore + 穩定 orderTermsByWeakness）+ `VocabularyTracker.priorityOrder`（向後相容，null = 原隨機行為）+ provider `_weaknessOrderedTerms`（讀 CardProgress，出錯 fallback 原順序）+ 11 測試。
-  - 後續可再加：對話評分改進、weak-first 選詞加一點隨機性增加變化。
+  - 後續可再加：weak-first 選詞加一點隨機性增加變化。
+- [x] **情境對話「針對性大改」**（`987945f`→`58d24bd`，4 階段）：使用者回報「很不完整、效果很差」。診斷三根因並重做（保留聊天 UI/語音/儲存/summary，state 契約不變）：
+  - **S1 統一無狀態引擎**（`987945f`）：`ConversationEngine` 抽象 + `GeminiConversationEngine`（gemini-2.0-flash，非 lite）+ `GroqConversationEngine`（llama-3.3-70b，pure body/parse）+ `FallbackConversationEngine`（跨供應商 fallback）+ `conversationEngineProvider`（依 AiProvider 排序）。12 測試。
+  - **S2 自然對話核心 + prompt**（`5e86958`）：`conversation_prompts.dart`——自然角色扮演、回應學生、目標單字「自然才用」不強制、無固定兩行格式。provider 改走引擎、**移除僵硬替換機制**（_containsAnyFocusTerm/_isScenarioAlignedQuestion/_looksUnnaturalQuestion + 罐頭 fallback、_parseAiTurnContent、Gemini model 輪替）。跨供應商 fallback 取代「降級成罐頭 local coach」當第一道防線。latestReplyHint 退役（鷹架改用既有 suggested replies）。12 測試。
+  - **S3 情境品質**（`95ef04a`）：`conversation_scenario_validator.dart`——移除「情境須字面含 N 個目標單字」硬門檻（詞彙字本就不會字面出現 → 好情境被誤退成通用 fallback）。情境生成 prompt 改為「依單字主題挑合適真實情境」。9 測試。
+  - **S4 評分**（`58d24bd`）：`buildScoringPrompt` 要求**非空、可行動**的修正句 + 一句具體提示（取代舊「沒錯就留空」）。Gemini 升 flash。新增 `evaluateTurnGroq`（Groq-only 也有真 AI 評分）+ provider `_scoreWithFallback`（偏好供應商優先、另一個 fallback、再離線）。`evaluateOffline` 給可行動提示（不再空白）。6 測試。
+  - **⚠️ 品質需實機驗證**：自然度/情境貼合/評分品質需填 Gemini 或 Groq key 跑一場對話實測（文字環境無法驗證）。舊 `GeminiService.startConversation`/`chatModels` 現為 dead code，可清理。
 - [ ] 模式：每個新功能 = 加一個 `AiTaskType` + `LocalAiService` 方法 + prompt builder + provider/widget + 測試（參考 `0d44d8f` 例句的做法）。
 
 ### C. C2 iOS native（需 Xcode + 實機，無法在對話內驗證）
@@ -71,6 +100,8 @@
 ### D. 健壯性 follow-up
 - [ ] **背景下載 kill-resume tracking**：目前用 awaited `download()`,app 被系統殺掉後不會自動續傳。要改 `enqueue` + `FileDownloader().trackTasks()` + listener + 啟動時掃描未完成任務。
 - [ ] 模型升級路徑：Gemma 4 E4B（高階機）、Qwen3 更大尺寸（等 litert-community 有現成檔）。
+- [ ] **AiGateway/Quota**：新增統一 AI 閘門，所有雲端 AI 任務都必須記錄用量與成本 bucket。
+- [ ] **ExamPlan 連動**：AI 對話與例句應優先使用 `ExamPlan` 的 examType / targetLevel / weak terms。
 
 ## 4. 重要提醒（給接手的對話）
 - **Native（Kotlin/Swift）+ Gradle/pubspec 改動無法在純文字環境驗證** → 必須使用者實機 build。寫 native 一律標 VERIFY 點。
