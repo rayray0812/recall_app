@@ -16,6 +16,7 @@ import 'package:recall_app/models/study_set.dart';
 import 'package:recall_app/providers/ai_provider_provider.dart';
 import 'package:recall_app/providers/ai_runtime_provider.dart';
 import 'package:recall_app/providers/gemini_key_provider.dart';
+import 'package:recall_app/services/ai/ai_quota_messages.dart';
 import 'package:recall_app/services/ai/ai_token_estimator.dart';
 import 'package:recall_app/services/ai_analytics_service.dart';
 import 'package:recall_app/services/ai_task.dart';
@@ -260,9 +261,9 @@ class _PhotoImportScreenState extends ConsumerState<PhotoImportScreen>
           elapsed: task.elapsed,
           failureReason: ScanFailureReason.quotaExceeded,
         );
-        throw ScanException(
-          ScanFailureReason.quotaExceeded,
-          'Daily AI photo-import quota reached for your plan.',
+        throw AiQuotaExceededException(
+          entitlement,
+          aiQuotaUpgradeMessage(entitlement),
         );
       }
     }
@@ -567,6 +568,18 @@ class _PhotoImportScreenState extends ConsumerState<PhotoImportScreen>
           ),
         );
       }
+    } on AiQuotaExceededException catch (e) {
+      // Our daily plan quota (not a provider rate-limit) → show the upgrade nudge
+      // directly instead of the generic quota copy.
+      if (!mounted || _cancelled) return;
+      debugPrint('Ai quota exceeded [${e.entitlement.name}]');
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(e.message),
+          duration: const Duration(seconds: 8),
+        ),
+      );
+      setState(() => _stage = _Stage.pickMode);
     } on ScanException catch (e) {
       if (!mounted || _cancelled) return;
       debugPrint('ScanException [${e.reason}]: ${e.message}');
