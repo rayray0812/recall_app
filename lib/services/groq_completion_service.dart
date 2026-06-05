@@ -3,6 +3,7 @@ import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
+import 'package:recall_app/services/ai/ai_token_estimator.dart';
 import 'package:recall_app/services/ai_analytics_service.dart';
 import 'package:recall_app/services/ai_error.dart';
 import 'package:recall_app/services/ai_task.dart';
@@ -74,6 +75,8 @@ class GroqCompletionService {
         provider: task.provider,
         success: true,
         elapsed: task.elapsed,
+        inputTokens: AiTokenEstimator.estimate(prompt),
+        outputTokens: AiTokenEstimator.estimate(raw),
       );
       return list.length >= count ? list : null;
     } catch (e) {

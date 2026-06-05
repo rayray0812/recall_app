@@ -16,6 +16,7 @@ import 'package:recall_app/models/study_set.dart';
 import 'package:recall_app/providers/ai_provider_provider.dart';
 import 'package:recall_app/providers/ai_runtime_provider.dart';
 import 'package:recall_app/providers/gemini_key_provider.dart';
+import 'package:recall_app/services/ai/ai_token_estimator.dart';
 import 'package:recall_app/services/ai_analytics_service.dart';
 import 'package:recall_app/services/ai_task.dart';
 import 'package:recall_app/services/gemini_service.dart';
@@ -315,11 +316,18 @@ class _PhotoImportScreenState extends ConsumerState<PhotoImportScreen>
           );
         }
       }
+      // Estimate tokens for cost telemetry: input ≈ OCR text we sent, output ≈
+      // the extracted term/definition pairs.
+      final outText = result
+          .map((c) => '${c['term'] ?? ''} ${c['definition'] ?? ''}')
+          .join('\n');
       analytics.logEvent(
         taskType: task.type,
         provider: task.provider,
         success: true,
         elapsed: task.elapsed,
+        inputTokens: AiTokenEstimator.estimate(_ocrResult?.fullText ?? ''),
+        outputTokens: AiTokenEstimator.estimate(outText),
       );
       return result;
     } on ScanException catch (e) {

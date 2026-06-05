@@ -22,6 +22,8 @@ import 'package:recall_app/providers/fsrs_provider.dart';
 import 'package:recall_app/providers/gemini_key_provider.dart';
 import 'package:recall_app/providers/stats_provider.dart';
 import 'package:recall_app/providers/study_set_provider.dart';
+import 'package:recall_app/services/ai/ai_token_estimator.dart';
+import 'package:recall_app/services/ai_analytics_service.dart';
 import 'package:recall_app/services/ai_task.dart';
 import 'package:recall_app/services/gemini_service.dart';
 import 'package:recall_app/services/outcome_adapter.dart';
@@ -556,14 +558,26 @@ class ConversationSessionNotifier
         _handleEngineError(ScanFailureReason.quotaExceeded, text);
         return;
       }
+      final startedAt = DateTime.now().toUtc();
       final responseText = await _engine!.generateTurn(
         systemPrompt: systemPrompt,
         history: history,
         userMessage: userMessage,
       );
-      _estimatedTotalTokens +=
-          _estimateTokensFromChars(systemPrompt.length + userMessage.length) +
-          _estimateTokensFromChars(responseText.length);
+      final inTokens = AiTokenEstimator.estimateAll([systemPrompt, userMessage]);
+      final outTokens = AiTokenEstimator.estimate(responseText);
+      _estimatedTotalTokens += inTokens + outTokens;
+      // Record the turn in the AI usage ledger (cost telemetry). NOTE: the
+      // engine may have failed over across providers; this logs one product-task
+      // event for the provider chain (see docs §2.6 provider-attempt follow-up).
+      unawaited(AiAnalyticsService().logEvent(
+        taskType: AiTaskType.conversationTurn,
+        provider: _engine!.name,
+        success: true,
+        elapsed: DateTime.now().toUtc().difference(startedAt),
+        inputTokens: inTokens,
+        outputTokens: outTokens,
+      ));
       await _applyAiResponse(
         responseText: responseText,
         text: text,
@@ -1118,9 +1132,6 @@ class ConversationSessionNotifier
   }
 
   bool _isOverTokenBudget() => _estimatedTotalTokens >= _maxSessionTokenBudget;
-
-  int _estimateTokensFromChars(int chars) =>
-      chars <= 0 ? 0 : (chars / 4).ceil();
 
   bool _refreshCooldownState() {
     final until = _rateLimitCooldownUntil;
