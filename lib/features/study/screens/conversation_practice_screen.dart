@@ -11,10 +11,12 @@ import 'package:recall_app/features/study/widgets/turn_feedback_chip.dart';
 import 'package:recall_app/features/study/widgets/typing_indicator.dart';
 import 'package:recall_app/features/study/widgets/quick_action_bar.dart';
 import 'package:recall_app/features/study/widgets/voice_wave_indicator.dart';
+import 'package:recall_app/providers/ai_runtime_provider.dart';
 import 'package:recall_app/providers/conversation_session_provider.dart';
 import 'package:recall_app/providers/gemini_key_provider.dart';
 import 'package:recall_app/providers/study_set_provider.dart';
 import 'package:recall_app/providers/tts_engine_provider.dart';
+import 'package:recall_app/services/ai/ai_quota_messages.dart';
 import 'package:recall_app/services/ai_tts_service.dart';
 import 'package:speech_to_text/speech_to_text.dart';
 
@@ -439,6 +441,11 @@ class _ConversationPracticeScreenState
           ),
           body: Column(
             children: [
+              if (session.isQuotaExhausted)
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 10, 16, 0),
+                  child: _buildQuotaBanner(theme),
+                ),
               if (!isKeyboardOpen) ...[
                 Padding(
                   padding: const EdgeInsets.fromLTRB(16, 10, 16, 0),
@@ -697,6 +704,38 @@ class _ConversationPracticeScreenState
               ),
           ],
         ),
+      ),
+    );
+  }
+
+  /// Banner shown when the daily cloud-AI conversation quota is spent. The chat
+  /// keeps working via the offline local coach; this just explains why replies
+  /// changed and nudges an upgrade (§2.6).
+  Widget _buildQuotaBanner(ThemeData theme) {
+    final entitlement = ref.watch(aiEntitlementProvider);
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.tertiaryContainer,
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Row(
+        children: [
+          Icon(
+            Icons.bolt_outlined,
+            size: 18,
+            color: theme.colorScheme.onTertiaryContainer,
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              aiQuotaUpgradeMessage(entitlement),
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: theme.colorScheme.onTertiaryContainer,
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }

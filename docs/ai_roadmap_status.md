@@ -72,7 +72,7 @@ AI 功能上線到學生市場前，必須補齊：
 - [ ] **provider-attempt 計費**(code review C2):目前「一個產品任務 = 一個配額單位」,但 fallback 失敗轉打第二家 provider 時實際是 2 次 cloud call、配額只記 1。屬可接受的設計取捨(failover 才發生),但精確成本核算需把計費移到「每次 provider dispatch」或記 providerAttempts。
 - [ ] **entitlement 真實來源**：目前 entitlement 為本地設定（無付費/伺服器同步,已在 `ai_entitlement.dart` 標註為 local placeholder）。需接 RevenueCat/StoreKit 或 Supabase entitlement。
 - [x] **AI 用量 UI**（`ai_usage_card.dart`,在設定→AI 對話框）：顯示目前方案、今日各雲端任務用量(used/limit + 進度條,耗盡轉紅)、近 24h token 彙總;方案 ChoiceChip 可切換(寫本地 `aiEntitlementProvider`,dev/local placeholder)。3 widget 測試。
-- [~] **配額耗盡的主動提示**：拍照建卡已做——配額用盡時 throw `AiQuotaExceededException`(帶 entitlement),SnackBar 顯示 `aiQuotaUpgradeMessage`(免費→「升級 Plus」、付費→「明天重置」),與「供應商 rate-limit」的 `scanQuotaExceeded` 文案區分開。純函式訊息 helper + 5 測試。剩 conversation/quiz:對話耗盡目前靜默降級 local coach(可接受),日後可加 inline banner。
+- [x] **配額耗盡的主動提示**：拍照建卡——配額用盡時 throw `AiQuotaExceededException`(帶 entitlement),SnackBar 顯示 `aiQuotaUpgradeMessage`(免費→「升級 Plus」、付費→「明天重置」),與「供應商 rate-limit」的 `scanQuotaExceeded` 文案區分。對話——`isQuotaExhausted` 時於情境面板上方顯示 inline banner(同一份升級文案),聊天仍以 local coach 繼續、不中斷。純函式訊息 helper + 5 測試。
 
 短期不要承諾「所有 AI 免費無限用」。正確承諾是：
 

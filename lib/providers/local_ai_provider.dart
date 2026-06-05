@@ -237,13 +237,19 @@ final smartDistractorsProvider = FutureProvider.autoDispose
           // if the quota was just exhausted by a concurrent call, skip to the
           // random-card baseline rather than over-spending.
           if (!await quota.tryConsume(entitlement, task)) return null;
-          return GroqCompletionService(apiKey: groqKey).generateDistractors(
-            term: req.term,
-            definition: req.definition,
-            correctOption: req.correctOption,
-            reversed: req.reversed,
-            count: req.count,
-          );
+          final groq = GroqCompletionService(apiKey: groqKey);
+          try {
+            return await groq.generateDistractors(
+              term: req.term,
+              definition: req.definition,
+              correctOption: req.correctOption,
+              reversed: req.reversed,
+              count: req.count,
+            );
+          } finally {
+            // One-shot per question — release the HTTP connection pool.
+            groq.close();
+          }
         case AiGatewayOutcome.runLocal:
           final engine = await ref.watch(localLlmEngineProvider.future);
           return LocalAiService.generateDistractors(

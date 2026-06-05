@@ -27,7 +27,8 @@ class GroqCompletionService {
     required this.apiKey,
     this.model = defaultModel,
     http.Client? client,
-  }) : _client = client ?? http.Client();
+  })  : _client = client ?? http.Client(),
+        _ownsClient = client == null;
 
   /// Llama 3.3 70B — strong, free on Groq, good for short structured output.
   static const String defaultModel = 'llama-3.3-70b-versatile';
@@ -38,8 +39,16 @@ class GroqCompletionService {
   final String apiKey;
   final String model;
   final http.Client _client;
+  final bool _ownsClient;
 
   String get name => 'groq';
+
+  /// Release the underlying HTTP connection pool. Call this when the service was
+  /// created for a one-shot use (the common case) so the client isn't leaked.
+  /// No-op when a client was injected by the caller (they own its lifecycle).
+  void close() {
+    if (_ownsClient) _client.close();
+  }
 
   /// Cloud counterpart of [LocalAiService.generateDistractors]. Reuses the same
   /// prompt builder and parser so the options are shaped identically to the
