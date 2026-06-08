@@ -1,7 +1,9 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:recall_app/providers/ai_provider_provider.dart';
 import 'package:recall_app/providers/ai_runtime_provider.dart';
+import 'package:recall_app/providers/auth_provider.dart';
 import 'package:recall_app/services/ai/ai_gateway.dart';
+import 'package:recall_app/services/ai/ai_proxy_client.dart';
 import 'package:recall_app/services/ai/ai_router.dart';
 import 'package:recall_app/services/ai_task.dart';
 import 'package:recall_app/services/groq_completion_service.dart';
@@ -155,11 +157,10 @@ final confusionExplanationProvider = FutureProvider.autoDispose
 /// Unlike the localOnly affordances above, smartDistractors is cloudPreferred
 /// (see §2.5): it runs in the cloud by default and only falls back to the local
 /// engine when offline. So "available" means routed *anywhere* (local or
-/// cloud), not just on-device. For the cloud path we additionally require a Groq
-/// key, because the cloud distractor generator is Groq-only — without it the
-/// quiz would prefetch and always get null, wasting work. The quiz uses this to
-/// decide whether to attempt AI distractor enrichment, falling back to random
-/// other-card options when unavailable.
+/// cloud), not just on-device. For the cloud path, logged-in users can use the
+/// Grasp server-side proxy; signed-out users still need their own Groq key.
+/// The quiz uses this to decide whether to attempt AI distractor enrichment,
+/// falling back to random other-card options when unavailable.
 final smartDistractorsAvailableProvider =
     Provider.autoDispose<AsyncValue<bool>>((ref) {
       return ref.watch(aiRouteProvider(AiTaskType.smartDistractors)).whenData((
@@ -169,7 +170,8 @@ final smartDistractorsAvailableProvider =
           case AiRouteTarget.unavailable:
             return false;
           case AiRouteTarget.cloud:
-            return ref.watch(groqKeyProvider).trim().isNotEmpty;
+            return ref.watch(currentUserProvider) != null ||
+                ref.watch(groqKeyProvider).trim().isNotEmpty;
           case AiRouteTarget.local:
             return true;
         }
@@ -208,13 +210,12 @@ class SmartDistractorRequest {
 
 /// Lazy provider that produces plausible wrong options for a quiz question.
 ///
-/// smartDistractors is cloudPreferred, so this routes to Groq by default and
-/// only uses the on-device engine as an offline fallback. Cloud calls pass
-/// through [AiGateway], which enforces the entitlement's daily quota (§2.6) —
-/// once exhausted the call is skipped. Returns null (→ caller keeps its
-/// random-card baseline) when the task is unavailable, quota is exhausted, no
-/// Groq key is set for the cloud path, or the model returns too few usable
-/// distractors.
+/// smartDistractors is cloudPreferred, so logged-in users route to the Grasp
+/// server-side proxy by default (owner tokens stay in Supabase secrets) and
+/// only use the on-device engine as an offline fallback. Signed-out users with
+/// their own Groq key keep the old BYO direct path. Returns null (→ caller keeps
+/// its random-card baseline) when the task is unavailable, quota is exhausted,
+/// no cloud credential path exists, or the model returns too few usable options.
 final smartDistractorsProvider = FutureProvider.autoDispose
     .family<List<String>?, SmartDistractorRequest>((ref, req) async {
       const task = AiTaskType.smartDistractors;
@@ -231,6 +232,11 @@ final smartDistractorsProvider = FutureProvider.autoDispose
 
       switch (gw.outcome) {
         case AiGatewayOutcome.runCloud:
+          final user = ref.watch(currentUserProvider);
+          if (user != null) {
+            return _generateProxyDistractors(ref, req);
+          }
+
           final groqKey = ref.watch(groqKeyProvider).trim();
           if (groqKey.isEmpty) return null;
           // Atomically check + consume one metered unit at the dispatch point;
@@ -265,3 +271,41 @@ final smartDistractorsProvider = FutureProvider.autoDispose
           return null;
       }
     });
+
+Future<List<String>?> _generateProxyDistractors(
+  Ref ref,
+  SmartDistractorRequest req,
+) async {
+  final prompt = LocalAiService.buildDistractorsPrompt(
+    term: req.term,
+    definition: req.definition,
+    correctOption: req.correctOption,
+    reversed: req.reversed,
+    count: req.count,
+  );
+  try {
+    final response = await ref
+        .read(aiProxyClientProvider)
+        .complete(
+          taskType: AiTaskType.smartDistractors,
+          messages: [
+            const AiProxyMessage(
+              role: AiProxyRole.system,
+              content:
+                  'You generate concise multiple-choice distractors for a vocabulary quiz. Return only one option per line.',
+            ),
+            AiProxyMessage(role: AiProxyRole.user, content: prompt),
+          ],
+          temperature: 0.8,
+          maxTokens: 180,
+        );
+    final list = LocalAiService.parseDistractorLines(
+      response.text,
+      exclude: req.correctOption,
+      max: req.count,
+    );
+    return list.length >= req.count ? list : null;
+  } catch (_) {
+    return null;
+  }
+}

@@ -1,168 +1,389 @@
-# 產品總規劃 Product Master Plan（U3）
-更新日期：2026-02-15  
-適用產品：拾憶 Recall（Flutter + Riverpod + Supabase + Hive）
+# Grasp 產品總規劃 Product Master Plan
+更新日期：2026-06-04  
+適用產品：Grasp（Flutter + Riverpod + Supabase + Hive/FSRS + Local/Cloud AI）
 
-## 0. 願景與定位
-- 願景：打造「Quizlet 的好上手 + Anki 的記憶效率 + Duolingo 的行為驅動」學習產品。
-- 目標族群：高中生、大學生、檢定考生；次要族群為老師與自學者。
-- 核心價值：
-  - 快速開始：3 分鐘內完成「匯入 -> 開始練習」。
-  - 真正記住：FSRS + 錯題補強，提升長期記憶。
-  - 不怕斷線：離線優先，弱網與校園網路可用。
-  - 每天想回來：遊戲化、挑戰、徽章與小工具提醒。
+相關營運文件：
+- [Cloud Sync & Storage Policy](cloud_sync_storage_policy.md)：定義哪些資料必須上雲、哪些 local-only、以及 review logs / AI usage 的節省策略。
 
-## 1. 當前狀態（As-Is）
-- 已完成主幹：
-  - 基礎架構、三種學習模式、FSRS、統計儀表板。
-  - Auth 強化（OAuth、Magic Link、生物辨識、路由守衛）。
-  - Daily Challenge、Revenge Mode、Home Widgets（W1/W2）。
-  - Admin 三階段（審核、批次、治理、合規匯出）。
-- 待補缺口：
-  - Supabase 正式環境鍵值與 Dashboard 設定。
-  - 生產環境 RLS/同步全鏈路實測。
-  - 成長飛輪與社群題庫尚未成形。
-  - 趣味性已起步，但缺乏「長線任務系統」。
+## 0. 核心定位
 
-## 2. 產品北極星與 KPI
-- 北極星：每週完成 >=1 次完整學習流程的活躍學習者（WAL）。
-- 核心 KPI：
-  - 啟動：D1 新手留存、首日完成首套學習比例。
-  - 留存：D7、D30 留存。
-  - 學習效率：每場次複習張數、錯題 7 日恢復率。
-  - 黏著度：Daily Challenge 完成率、連續天數中位數。
-  - 品質：Crash-free sessions、同步衝突率、P95 啟動/載入時間。
-  - 商業：試用啟動率、試用轉付費率、30 日付費留存。
+Grasp 不再定位為泛用字卡工具，而是：
+
+> **台灣考試導向的 AI 主動回想教練。**
+
+產品承諾：
+
+- 每天告訴學生「今天該複習哪些字」。
+- 用 FSRS 控制長期記憶，不靠隨機刷題。
+- 答錯時能解釋混淆原因。
+- 用弱點字生成情境對話，讓學生真的會用。
+- 以學測、全民英檢、多益校園需求作為內容與成長主線。
+
+不追求成為另一個 Quizlet。Grasp 的差異化是「考試進度 + FSRS 科學排程 + AI 弱點補強」。
+
+## 1. 產品現況盤點
+
+### 1.1 已高度符合市場的能力
+
+- **Flutter 跨平台**：適合台灣高中/大學生 Android + iOS 混合環境。
+- **離線優先資料層**：目前以 Hive 儲存 study sets、card progress、review logs；弱網與通勤可用。
+- **FSRS**：`FsrsService` 已包裝 `fsrs` package，保留 stability、difficulty、retrievability 等科學排程能力。
+- **多模式學習**：SRS、Quiz、Matching、Revenge Mode、Daily Challenge 已形成基礎學習閉環。
+- **AI 對話**：Gemini/Groq engine + fallback 已存在，並已接上 FSRS 弱點詞優先。
+- **社群/教室雛形**：公開題庫、下載、收藏、評分、好友、教室與班級進度已具備 B2B 擴展基礎。
+- **安全與治理**：Supabase migration 已涵蓋 RLS、admin、moderation、audit、community hardening。
+
+### 1.2 目前不符合或存在防禦缺口
+
+- **缺考試主線**：尚未有 `ExamPlan`、學測/GEPT/TOEIC 官方題庫、考試日期倒推與 readiness score。
+- **AI 成本閘門不足**：已有 route，但缺 quota、entitlement、per-user token/cost logging。
+- **雲端 AI 摩擦高**：conversation 仍要求使用者自填 Gemini/Groq API key，普通學生不會理解。
+- **本地 AI 商業承諾過早**：LiteRT-LM 與模型下載尚需實機驗證；高頻本地推論可能慢、耗電、發熱。
+- **社群過早泛化**：留言、好友、排行榜已做，但學生最需要的是可信考試題庫，不是泛社群雜訊。
+- **開源可信度不足**：README 仍偏 Recall/工程啟動說明，缺 Grasp 品牌、架構圖、privacy model、contribution guide。
+- **資料查詢擴展限制**：Hive 適合本地物件，但未來弱點地圖、考試分析、全文搜尋、題庫品質分會更適合 SQLite/Drift。
+
+## 2. 北極星與 KPI
+
+### 北極星
+
+每週完成至少 3 天考試複習任務的活躍學習者（Weekly Exam-Ready Learners, WERL）。
+
+### P0 KPI
+
+- 首日建立/匯入第一套卡片比例。
+- 首日完成第一次 FSRS 複習比例。
+- D7 留存。
+- 每週完成複習天數中位數。
+- 考試計畫啟用率。
+- AI 每活躍用戶月成本。
+
+### P1 KPI
+
+- 弱點字 7 日恢復率。
+- 考前 30 天留存。
+- AI 對話完成率。
+- 官方題庫下載後 7 日活躍率。
+- Free -> Plus 轉換率。
+
+### P2 KPI
+
+- 班級建立數。
+- 老師派發題庫完成率。
+- 班級學生週活躍率。
+- 官方/認證題庫複習完成率。
 
 ## 3. 使用者分群與 JTBD
-- S1 考前衝刺生：想在短期記住大量題目。
-  - JTBD：我只想知道今天該背什麼、先救最危險的。
-- S2 長期累積生：每天固定少量練習，怕中斷。
-  - JTBD：我想穩定連續，不要斷 streak。
-- S3 教學協作者（老師/社團幹部）：
-  - JTBD：我想快速出題、分享、追蹤大家是否完成。
 
-## 4. 體驗主線（Core Loops）
-- 主循環（Daily Loop）：
-  - 入口提醒（Widget/通知）-> Today Review -> 評分 -> Summary -> 成就回饋 -> 明日計畫。
-- 補強循環（Recovery Loop）：
-  - 錯題聚合 -> Revenge Mode -> 連續清除 -> 錯題池縮小 -> 成效可視化。
-- 成長循環（Growth Loop）：
-  - 匯入/建立題庫 -> 分享/QR -> 新用戶導入 -> 題庫擴張 -> 活躍提升。
+### S1：學測衝刺高中生
 
-## 5. 趣味性與遊戲化設計（Fun System）
-- 短期刺激（每次開啟有感）：
-  - 立即回饋：答題動畫、分數浮動、完成慶祝。
-  - 微任務：`3 分鐘快刷`、`錯題清零`、`今天先 5 張`。
-- 中期動機（1-2 週）：
-  - 任務鏈：7 天 challenge path（新手/回鍋/衝刺版）。
-  - 成就徽章：行為型（連續）、技巧型（正確率）、探索型（新模式）。
-  - 番茄鐘連動：完成番茄可拿額外進度加成。
-- 長期黏著（1-3 月）：
-  - 學習賽季（Season）：每月主題 + 限定徽章 + 排行榜（可匿名）。
-  - 收藏系統：主題卡背、稱號、里程碑展示。
-  - Buddy 模式：同學互相督促，不公開答案只公開進度。
+- 需求：短時間記住大量英文單字。
+- JTBD：我只想知道今天該背什麼、哪些快忘了、哪些會考。
+- 核心功能：ExamPlan、官方學測字表、FSRS Today Review、錯題診斷。
 
-## 6. 內容與社群策略
-- UGC 題庫（P2）：
-  - 公開/私密/連結分享三層可見性。
-  - 題庫品質分數：完成率、收藏率、檢舉率、重複度。
-- 內容冷啟動：
-  - 官方精選題庫（學測、英文檢定、高頻單字）。
-  - 模板庫：英文單字、歷史名詞、生物術語等一鍵起手。
-- 社群健康：
-  - 檢舉 + 管理審核流程。
-  - 抄襲與垃圾內容偵測（相似度 + 行為規則）。
+### S2：全民英檢/多益檢定生
 
-## 7. 商業化與方案分層
-- Free（核心可用）：
-  - FSRS、基本匯入、基本統計、Daily Challenge。
-- Pro（高價值增益）：
-  - 深度洞察（弱點地圖、預測達標率）。
-  - AI 強化匯入清理、批次智能標籤。
-  - 高階主題與 Widget 套件、更高容量上限。
-- 定價建議：
-  - 月費低門檻（學生可負擔）+ 年費折扣。
-  - 7 天試用 + 復購與寬限機制。
+- 需求：長期累積字彙與使用能力。
+- JTBD：我不只要背意思，還要會在句子/口說中用。
+- 核心功能：AI 例句、弱點字對話、情境練習、熟練度地圖。
 
-## 8. 技術與治理原則
-- 架構：
-  - 垂直切片交付（UI/Provider/Service/Test/Analytics 同步完成）。
-  - 離線優先、同步可追蹤、衝突可回溯。
-- 安全：
-  - RLS owner-only 為底線；Admin 行為全審計、append-only。
-  - Edge Function 一律 fail-closed。
-- 可觀測性：
-  - 統一事件 taxonomy。
-  - 同步/匯入/權限錯誤碼標準化。
-- 品質門檻：
-  - `flutter analyze` 無錯。
-  - 關鍵路徑測試通過。
-  - migration/schema/worker runbook 驗證通過。
+### S3：大學生/自學者
 
-## 9. 12 週執行藍圖（U3）
-### Phase A（W1-W4）學習效率 + 趣味強化（P0）
-- 必做：
-  - Quiz 混題與錯題回放。
-  - 任務鏈 V1（7 天）與徽章校正。
-  - 匯入流程統一（CSV/OCR/Web）與錯誤提示一致。
-- 驗收：
-  - Daily Challenge 完成率提升。
-  - 錯題恢復率提升。
-  - 匯入成功率與留存提升。
+- 需求：快速把課堂、PDF、照片變成可複習素材。
+- JTBD：我不想手打卡片，只想把講義丟進去開始練。
+- 核心功能：OCR/PDF/文字匯入、AI 清理、批次標籤。
 
-### Phase B（W5-W8）個人化 + 多裝置穩定（P1）
-- 必做：
-  - 今日建議引擎（時間預估 + 模式分配）。
-  - 欄位級衝突解決 UX。
-  - 通知與 Widget 內容個人化。
-- 驗收：
-  - D7、D30 留存提升。
-  - 同步衝突處理完成率提升。
+### S4：老師/補習班/讀書會幹部
 
-### Phase C（W9-W12）成長 + 商業化 + 社群（P2）
-- 必做：
-  - 公開題庫探索與分享收藏。
-  - Free/Pro entitlement 與付款流程。
-  - 學習賽季 + 輕量排行榜。
-- 驗收：
-  - 分享導入率提升。
-  - 試用與轉付費達標。
+- 需求：派發題庫、追蹤完成率、看弱點。
+- JTBD：我想知道學生有沒有真的複習，不只是拿到單字表。
+- 核心功能：Classroom、官方/老師題庫、班級進度、弱點統計。
 
-## 10. 實驗矩陣（A/B）
-- E1：挑戰目標 10 vs 自適應目標（看完成率與次日回訪）。
-- E2：提醒文案（溫和 vs 壓力）對啟動率影響。
-- E3：Summary 頁「慶祝強度」對連續天數影響。
-- E4：Revenge Mode 入口位置（首頁上方 vs 模式頁）對使用率影響。
-- E5：試用入口時機（首次高峰成就 vs 設定頁）對轉付費影響。
+## 4. 核心產品閉環
 
-## 11. 風險與對策
-- 同步風險：多模式增加資料競爭。
-  - 對策：事件序號、衝突 diff、可回滾合併。
-- 趣味過載：遊戲化太重影響學習主線。
-  - 對策：所有趣味功能可關閉；預設不干擾複習流程。
-- 通知疲勞：
-  - 對策：安靜時段、頻率上限、行為式自適應。
-- 社群濫用：
-  - 對策：風險分級審核、檢舉 SLA、黑名單與限制發布。
+### Daily Exam Loop
 
-## 12. 每週運作節奏
-- 週一：KPI 檢視與優先級重排。
-- 週三：跨功能進度同步（產品/工程/設計）。
-- 週五：Demo + 數據回顧 + 文件更新。
-- 文件治理：
-  - 本檔每週更新一次。
-  - 重大範圍變動需同日更新。
+ExamPlan -> Today Review -> FSRS rating -> Summary -> 明日任務。
 
-## 13. 近期 2 週行動清單（可立即執行）
-- 完成 Supabase 正式設定與 RLS smoke test。
-- 針對 `sync_service` 補齊 CardProgress/ReviewLog 雲端同步。
-- 任務鏈 V1（7 日）與成就獎勵文案上線。
-- 補齊 deep link 冷啟動 + widget tap 全平台整合測試。
+目標：讓學生每天不用思考，打開 App 就知道要做什麼。
 
-## 14. 文件關聯
-- 舊版主計畫：`quizlet_app/docs/product_master_plan_2026-02-14.md`
-- 路線圖：`quizlet_app/ROADMAP.md`
-- 開發進度：`quizlet_app/todo.md`
-- Widget 規格：`quizlet_app/docs/review_widgets_spec.md`
-- Admin 計畫：`quizlet_app/docs/admin_account_management_plan.md`
-- RLS 驗證：`quizlet_app/docs/rls_verification.md`
+### Recovery Loop
+
+答錯/低 retrievability -> Revenge Mode / Quiz -> L3 混淆診斷 -> 重新排程。
+
+目標：把錯題從挫折變成可恢復的任務。
+
+### AI Usage Loop
+
+弱點字 -> AI 例句 / 情境對話 -> 使用紀錄 -> 回寫 review logs / weakness score。
+
+目標：AI 不只是聊天，而是補強 FSRS 辨識出的弱點。
+
+### Growth Loop
+
+官方/老師題庫 -> 下載/加入班級 -> 複習完成 -> 分享成果/邀請同學。
+
+目標：先靠可信內容擴散，再逐步開放 UGC。
+
+## 5. 技術架構方向
+
+### 5.1 本地資料
+
+短期保留 Hive，因為現有模型與 adapter 已成熟。
+
+中期新增 SQLite/Drift，適合以下資料：
+
+- review logs 大量查詢。
+- exam readiness 聚合。
+- weak term ranking。
+- 題庫搜尋與官方題庫索引。
+- AI usage/cost 本地快取。
+
+建議分工：
+
+- Hive：設定、少量 object、向後相容資料。
+- SQLite/Drift：可查詢事件、學習分析、全文搜尋、考試統計。
+
+### 5.2 AI Gateway
+
+所有雲端/本地 AI 呼叫不得由 UI 直接呼叫 provider，需統一經過 `AiGatewayService`。若使用 Grasp 自有 provider key 供免費額度/付費會員使用，Flutter 端不得持有 key，必須走 Supabase Edge Function `ai-proxy`；使用者自備 key 則只存在本機 `flutter_secure_storage`。詳細安全邊界見 `docs/ai_cloud_proxy_security_plan.md`。
+
+責任：
+
+- `AiRouter` 分流。
+- `AiQuotaService` 檢查免費/付費用量。
+- provider fallback。
+- token/cost 預估。
+- safety filter。
+- analytics event。
+- owner-token proxy：JWT 驗證、server entitlement、server-side quota、task/model 白名單、prompt 大小限制。
+
+必備資料表：
+
+- `ai_usage_events`
+- `ai_daily_usage`
+- `user_ai_entitlements`
+
+### 5.3 AI 分流策略
+
+- localOnly：L1 review hint、L2 mnemonic、L3 confusion diagnosis、短例句。原因：使用者主動點、頻率低、隱私敏感。
+- cloudPreferred：conversationTurn、smartDistractors、批量建卡、長摘要。原因：品質與速度比離線更重要。
+- localPreferred：photoImport、speakingScore。原因：本地可省成本，但失敗需雲端 fallback。
+
+`smartDistractors` 不應長期維持 localOnly。它是高頻任務，會放大耗電與延遲風險。
+
+### 5.4 考試資料模型
+
+新增：
+
+- `ExamPlan`
+  - id
+  - examType: gsat / gept / toeic / custom
+  - examDate
+  - targetLevel
+  - dailyMinutes
+  - createdAt / updatedAt
+
+- `OfficialDeck`
+  - id
+  - examType
+  - level
+  - title
+  - sourceVersion
+  - moderationStatus
+
+- `CardExamTag`
+  - cardId
+  - examType
+  - frequencyBand
+  - difficulty
+  - source
+
+- `ExamReadinessSnapshot`
+  - date
+  - examPlanId
+  - dueCount
+  - weakCount
+  - projectedRetention
+  - dailyLoad
+
+### 5.5 社群資料模型
+
+公開題庫需要從「泛 UGC」改為「可信內容分層」。
+
+新增或補強欄位：
+
+- `source_type`: official / teacher_verified / user
+- `exam_type`
+- `quality_score`
+- `moderation_status`
+- `review_completion_rate`
+- `report_rate`
+- `duplicate_score`
+
+預設排序應優先：
+
+official > teacher_verified > high quality user content。
+
+## 6. 產品與功能 Roadmap
+
+### Phase 0：策略收斂與可信底盤（1-2 週）
+
+- 更新 README 與品牌：Recall -> Grasp。
+- 補架構圖、privacy model、local/cloud AI 說明。
+- 實機驗證 LiteRT-LM：build、下載、推論、耗電、延遲。
+- 建立 `AiGatewayService` 設計文件。
+- 把 `smartDistractors` 從長期 localOnly 計畫中移出，規劃 cloudPreferred fallback。
+
+驗收：
+
+- README 能讓外部開發者 10 分鐘內理解產品。
+- 本地模型實測有數據：首次載入、單次推論、溫度/電量變化。
+- AI 任務表每一項都有 tier、quota、fallback。
+
+### Phase 1：考試模式 MVP（2-6 週）
+
+- `ExamPlan` model + provider + onboarding。
+- 首頁加入考試倒數與每日任務。
+- 官方題庫匯入格式：學測高頻、GEPT 中級、多益校園。
+- Today Review 依 exam plan 加權排序。
+- Summary 顯示：今日完成率、弱點數、預估覆蓋率。
+
+驗收：
+
+- 新使用者 3 分鐘內可選考試目標並開始複習。
+- Today Review 可回答「今天為什麼要背這些字」。
+- D1 完成首輪複習比例提升。
+
+### Phase 2：弱點地圖與 AI 補強（6-10 週）
+
+- Weakness Map：overdue、lapses、low stability、confusion。
+- AI 例句與 L3 診斷統一進 `AiGatewayService`。
+- 對話練習固定使用 FSRS 弱點詞。
+- 對話 summary 回寫學習成果。
+- AI quota：免費每日次數、Plus/Pro 額度。
+
+驗收：
+
+- 學生能看到「最危險的 20 個字」。
+- AI 對話結束後能明確列出已用/未用/需複習字。
+- AI 每 MAU 成本可追蹤。
+
+### Phase 3：可信題庫與社群擴散（10-16 週）
+
+- 官方題庫首頁入口。
+- 公開題庫標記 source_type 與 exam_type。
+- 題庫品質分：下載完成率、複習完成率、檢舉率、評分。
+- 老師認證題庫流程。
+- 留言/評分 moderation 預設啟用。
+
+驗收：
+
+- 使用者搜尋「學測」時優先看到官方/認證題庫。
+- UGC 不會壓過可信內容。
+- 題庫下載後 7 日活躍率可追蹤。
+
+### Phase 4：班級版與商業化（16-24 週）
+
+- Entitlement：free / plus / pro_ai / classroom。
+- Plus：考試計畫、弱點地圖、同步容量、更多 AI 次數。
+- Pro AI：AI 對話、批量建卡、PDF/OCR 強化。
+- Classroom：派發題庫、完成率、弱點統計、班級排行榜。
+- 老師 dashboard：學生完成率、弱點分布、未完成名單。
+
+驗收：
+
+- 付費牆不影響 FSRS 核心學習。
+- AI 成本可被 quota 控制。
+- 第一批老師/補習班可試用班級版。
+
+### Phase 5：規模化與開源護城河（6-12 個月）
+
+- Self-host Supabase guide。
+- 開源 core / 商業 cloud 分層。
+- 官方題庫版本管理。
+- 匿名 benchmark：考前 30 天完成率、弱點恢復率。
+- 多校/補習班合作。
+
+## 7. 商業化規劃
+
+### Free
+
+- FSRS。
+- 本地字卡。
+- 基礎匯入。
+- 官方基礎題庫。
+- 每日少量 AI 例句/診斷。
+
+### Plus（建議 NT$79/月，NT$790/年）
+
+- 考試計畫。
+- 弱點地圖。
+- 更多 AI 診斷/例句。
+- 多裝置同步容量提升。
+- 官方題庫完整包。
+
+### Pro AI（建議 NT$149/月）
+
+- AI 情境對話。
+- PDF/OCR 批量建卡。
+- AI 批次清理與標籤。
+- 進階學習分析。
+
+### Classroom（建議 NT$1,500-3,000/班/學期起）
+
+- 老師派發題庫。
+- 班級完成率。
+- 弱點統計。
+- 認證題庫發布。
+
+原則：
+
+- 不要把 FSRS 鎖付費。
+- 收費點放在「省時間」、「考試計畫」、「AI 額度」、「班級管理」。
+
+## 8. 風險與防線
+
+### AI 成本失控
+
+- 對策：`AiQuotaService`、task-level quota、雲端任務成本記錄、Pro AI 才開長對話。
+
+### 本地 AI 體驗不穩
+
+- 對策：實機驗證後才預設開啟；本地模型標 Beta；高頻任務走雲端或規則 fallback。
+
+### 社群內容品質低
+
+- 對策：官方/老師認證優先；UGC 預設需品質分；未成年留言 moderation。
+
+### 功能過度複雜
+
+- 對策：首頁只顯示今日任務、考試倒數、弱點入口。社群、教室、AI 設定都不搶主流程。
+
+### 同步/資料一致性
+
+- 對策：保留 delta sync；補 sync smoke test；重要學習事件 append-only。
+
+### 開源與商業衝突
+
+- 對策：core open source，cloud services / official decks / classroom / quota 為商業服務。
+
+## 9. 近期 2 週行動清單
+
+1. 更新 README：Grasp 品牌、安裝、架構、隱私、AI 分流。
+2. 實作 `ExamPlan` model/provider/storage。
+3. 首頁加入考試倒數與今日任務文案。
+4. 建立官方題庫資料格式與第一份 sample deck。
+5. 設計 `AiGatewayService` / `AiQuotaService` 介面。
+6. 修正 AI roadmap：`smartDistractors` 目標改 cloudPreferred。
+7. 實機測 LiteRT-LM：紀錄延遲/耗電/模型品質。
+8. 社群 plan 補 source_type / exam_type / quality_score。
+
+## 10. 文件關聯
+
+- AI 現況與待辦：`docs/ai_roadmap_status.md`
+- AI 策略總綱：`docs/ai_strategy_plan.md`
+- AI 模型引擎：`docs/ai_model_engine_plan.md`
+- 社群規劃：`docs/community_feature_plan.md`
+- RLS 驗證：`docs/rls_verification.md`
+- Admin 計畫：`docs/admin_account_management_plan.md`

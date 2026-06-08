@@ -202,14 +202,8 @@ void main() {
 
     test('reviewCard throws for invalid rating', () {
       const progress = CardProgress(cardId: 'c1', setId: 's1');
-      expect(
-        () => service.reviewCard(progress, 0),
-        throwsArgumentError,
-      );
-      expect(
-        () => service.reviewCard(progress, 5),
-        throwsArgumentError,
-      );
+      expect(() => service.reviewCard(progress, 0), throwsArgumentError);
+      expect(() => service.reviewCard(progress, 5), throwsArgumentError);
     });
   });
 
@@ -305,8 +299,14 @@ void main() {
     });
 
     test('isRateLimit returns true only for quotaExceeded', () {
-      expect(AiErrorClassifier.isRateLimit(ScanFailureReason.quotaExceeded), isTrue);
-      expect(AiErrorClassifier.isRateLimit(ScanFailureReason.authError), isFalse);
+      expect(
+        AiErrorClassifier.isRateLimit(ScanFailureReason.quotaExceeded),
+        isTrue,
+      );
+      expect(
+        AiErrorClassifier.isRateLimit(ScanFailureReason.authError),
+        isFalse,
+      );
       expect(AiErrorClassifier.isRateLimit(ScanFailureReason.unknown), isFalse);
     });
   });
@@ -358,10 +358,7 @@ void main() {
 
   group('LocalAiService cleaners', () {
     test('cleanSingleSentence strips leading "提示：" label', () {
-      expect(
-        LocalAiService.cleanSingleSentence('提示：這個字常用於正式場合'),
-        '這個字常用於正式場合',
-      );
+      expect(LocalAiService.cleanSingleSentence('提示：這個字常用於正式場合'), '這個字常用於正式場合');
     });
 
     test('cleanSingleSentence strips Hint: label', () {
@@ -389,21 +386,37 @@ void main() {
       );
     });
 
+    test('cleanSingleSentence strips Qwen thinking blocks', () {
+      expect(
+        LocalAiService.cleanSingleSentence(
+          '<think>\nI should make a sentence.\n</think>\nExample: She is resilient.',
+        ),
+        'She is resilient.',
+      );
+      expect(
+        LocalAiService.cleanSingleSentence(
+          '<think>\nThe user wants an example.\nExample: I am busy today.',
+        ),
+        '',
+      );
+      expect(LocalAiService.cleanSingleSentence('think'), '');
+    });
+
     test('cleanSingleSentence strips surrounding quotes', () {
       expect(
         LocalAiService.cleanSingleSentence('"quoted hint"'),
         'quoted hint',
       );
-      expect(
-        LocalAiService.cleanSingleSentence('「中文引號」'),
-        '中文引號',
-      );
+      expect(LocalAiService.cleanSingleSentence('「中文引號」'), '中文引號');
     });
 
-    test('cleanSingleSentence trims whitespace and returns empty for empty input', () {
-      expect(LocalAiService.cleanSingleSentence('   \n  '), '');
-      expect(LocalAiService.cleanSingleSentence(''), '');
-    });
+    test(
+      'cleanSingleSentence trims whitespace and returns empty for empty input',
+      () {
+        expect(LocalAiService.cleanSingleSentence('   \n  '), '');
+        expect(LocalAiService.cleanSingleSentence(''), '');
+      },
+    );
 
     test('cleanShortParagraph keeps up to two non-empty lines', () {
       expect(

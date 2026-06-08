@@ -19,6 +19,7 @@ AiUsageView _view({
     rows: [
       for (final task in const [
         AiTaskType.conversationTurn,
+        AiTaskType.exampleSentence,
         AiTaskType.smartDistractors,
         AiTaskType.photoImport,
         AiTaskType.speakingScore,
@@ -27,6 +28,7 @@ AiUsageView _view({
           task: task,
           label: switch (task) {
             AiTaskType.conversationTurn => 'AI 對話',
+            AiTaskType.exampleSentence => 'AI 例句',
             AiTaskType.smartDistractors => '測驗智慧選項',
             AiTaskType.photoImport => '拍照建卡',
             AiTaskType.speakingScore => '口說評分',
@@ -53,8 +55,10 @@ void main() {
     await tester.pump();
 
     expect(find.text('AI 對話'), findsOneWidget);
+    expect(find.text('AI 例句'), findsOneWidget);
     expect(find.text('測驗智慧選項'), findsOneWidget);
     expect(find.text('拍照建卡'), findsOneWidget);
+    expect(find.text('0 / 30'), findsAtLeastNWidgets(2));
     expect(find.text('0 / 10'), findsOneWidget); // photoImport free cap = 10
   });
 
@@ -71,7 +75,7 @@ void main() {
     await tester.pumpWidget(_harness(_view(entitlement: AiEntitlement.proAi)));
     await tester.pump();
 
-    expect(find.text('無限'), findsNWidgets(4));
+    expect(find.text('無限'), findsNWidgets(5));
   });
 
   testWidgets('shows the 24h token summary when there is usage', (tester) async {

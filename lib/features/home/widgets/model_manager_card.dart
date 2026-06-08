@@ -139,6 +139,9 @@ class _ModelManagerCardState extends ConsumerState<ModelManagerCard> {
         }
         final recommendedId = ModelCatalog.recommended(cap)?.id;
         final theme = Theme.of(context);
+        final hasActiveCatalogModel = _installed.values.any(
+          (path) => path != null && path == activePath,
+        );
         return Container(
           width: double.infinity,
           padding: const EdgeInsets.all(12),
@@ -175,6 +178,11 @@ class _ModelManagerCardState extends ConsumerState<ModelManagerCard> {
                   isRecommended: spec.id == recommendedId,
                   activePath: activePath,
                 ),
+              if (activePath.trim().isNotEmpty && !hasActiveCatalogModel)
+                Padding(
+                  padding: const EdgeInsets.only(top: 8),
+                  child: _staleModelBox(context),
+                ),
               if (_error != null)
                 Padding(
                   padding: const EdgeInsets.only(top: 8),
@@ -189,6 +197,42 @@ class _ModelManagerCardState extends ConsumerState<ModelManagerCard> {
           ),
         );
       },
+    );
+  }
+
+  Widget _staleModelBox(BuildContext context) {
+    final theme = Theme.of(context);
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(10),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.errorContainer.withValues(alpha: 0.35),
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            '目前選到舊版或無效的本地模型。請清除後下載新版模型。',
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: theme.colorScheme.onErrorContainer,
+            ),
+          ),
+          const SizedBox(height: 6),
+          Align(
+            alignment: Alignment.centerLeft,
+            child: TextButton.icon(
+              onPressed: () async {
+                await ref.read(gemmaLocalModelPathProvider.notifier).clear();
+                _invalidateEngine();
+                if (mounted) setState(() {});
+              },
+              icon: const Icon(Icons.cleaning_services_rounded, size: 16),
+              label: const Text('清除目前模型'),
+            ),
+          ),
+        ],
+      ),
     );
   }
 
@@ -247,7 +291,12 @@ class _ModelManagerCardState extends ConsumerState<ModelManagerCard> {
                 ),
               ),
               const SizedBox(width: 8),
-              _action(spec, installed: installed, isActive: isActive, isDownloading: isDownloading),
+              _action(
+                spec,
+                installed: installed,
+                isActive: isActive,
+                isDownloading: isDownloading,
+              ),
             ],
           ),
           if (isDownloading) ...[

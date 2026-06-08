@@ -38,6 +38,8 @@ abstract class LocalLlmEngine {
 class AndroidLiteRtLmEngine implements LocalLlmEngine {
   AndroidLiteRtLmEngine({required this.modelPath});
 
+  static final Set<String> _unavailablePaths = <String>{};
+
   /// Absolute path to the downloaded `.litertlm` / `.task` model file.
   final String modelPath;
 
@@ -48,6 +50,7 @@ class AndroidLiteRtLmEngine implements LocalLlmEngine {
   Future<bool> isAvailable() async {
     final p = modelPath.trim();
     if (p.isEmpty) return false;
+    if (_unavailablePaths.contains(p)) return false;
     // Cheap existence check only. Do NOT load/initialize the model here —
     // LiteRT-LM init takes ~10s and loads GBs into RAM, and this runs on every
     // route/availability check (rendering an AI button, opening settings).
@@ -62,18 +65,33 @@ class AndroidLiteRtLmEngine implements LocalLlmEngine {
     int maxTokens = 256,
     double temperature = 0.0,
     int topK = 1,
-  }) {
-    return OnDeviceAiService.runInference(
-      modelPath: modelPath,
-      prompt: prompt,
-      maxTokens: maxTokens,
-      temperature: temperature,
-      topK: topK,
-    );
+  }) async {
+    try {
+      return await OnDeviceAiService.runInference(
+        modelPath: modelPath,
+        prompt: prompt,
+        maxTokens: maxTokens,
+        temperature: temperature,
+        topK: topK,
+      );
+    } on PlatformException catch (e) {
+      if (_isModelLoadFailure(e)) {
+        _unavailablePaths.add(modelPath.trim());
+      }
+      rethrow;
+    }
   }
 
   @override
   Future<void> dispose() => OnDeviceAiService.unloadModel();
+
+  static bool _isModelLoadFailure(PlatformException e) {
+    final text = '${e.code} ${e.message ?? ''} ${e.details ?? ''}'
+        .toLowerCase();
+    return text.contains('failed to create engine') ||
+        text.contains('failed to load model') ||
+        text.contains('invalid_argument');
+  }
 }
 
 /// iOS engine backed by Apple's Foundation Models framework (iOS 26+).

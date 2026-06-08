@@ -47,9 +47,9 @@ class AiRouter {
       // Short, high-frequency, privacy-sensitive → always local.
       AiTaskType.reviewHint ||
       AiTaskType.mnemonic ||
-      AiTaskType.confusionDiagnosis ||
-      AiTaskType.exampleSentence => AiTaskTier.localOnly,
+      AiTaskType.confusionDiagnosis => AiTaskTier.localOnly,
       // Medium tasks: prefer local, cloud as fallback.
+      AiTaskType.exampleSentence ||
       AiTaskType.photoImport ||
       AiTaskType.speakingScore => AiTaskTier.localPreferred,
       // High-frequency / heavy tasks: prefer cloud (free Groq) to spare the

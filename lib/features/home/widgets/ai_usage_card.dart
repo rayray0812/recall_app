@@ -8,6 +8,7 @@ import 'package:recall_app/services/ai_analytics_service.dart';
 import 'package:recall_app/services/ai_task.dart';
 
 const Map<AiTaskType, String> _meteredTaskLabels = {
+  AiTaskType.exampleSentence: 'AI 例句',
   AiTaskType.conversationTurn: 'AI 對話',
   AiTaskType.smartDistractors: '測驗智慧選項',
   AiTaskType.photoImport: '拍照建卡',

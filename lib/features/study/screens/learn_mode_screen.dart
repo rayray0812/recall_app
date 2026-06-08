@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:math';
 
 import 'package:audioplayers/audioplayers.dart';
@@ -16,6 +17,8 @@ import 'package:recall_app/features/study/widgets/rounded_progress_bar.dart';
 import 'package:recall_app/features/study/widgets/study_result_widgets.dart';
 import 'package:recall_app/features/study/widgets/text_input_question.dart';
 import 'package:recall_app/models/flashcard.dart';
+import 'package:recall_app/providers/fsrs_provider.dart';
+import 'package:recall_app/providers/stats_provider.dart';
 import 'package:recall_app/services/local_storage_service.dart';
 import 'package:recall_app/providers/study_set_provider.dart';
 
@@ -70,6 +73,8 @@ class _LearnModeScreenState extends ConsumerState<LearnModeScreen> {
   int _questionCardAnimToken = 0;
   int _lastChapterProgressMilestone = 0;
   bool _progressGlowActive = false;
+  bool _outcomesDirty = false;
+  final Set<Future<void>> _pendingOutcomeWrites = <Future<void>>{};
 
   int? _selectedOption;
   String? _questionSeedCardId;
@@ -423,6 +428,16 @@ class _LearnModeScreenState extends ConsumerState<LearnModeScreen> {
         ? currentStage + 1
         : (isCorrect ? currentStage : 0);
     _stageByCardId[cardId] = nextStage.clamp(0, _masteryStage);
+    _trackOutcomeWrite(
+      _recordLearnOutcome(
+        cardId: cardId,
+        isCorrect: isCorrect,
+        stageBefore: currentStage,
+        stageAfter: _stageByCardId[cardId] ?? 0,
+        hintUsed: _hintUsedOnCurrentQuestion,
+        rescueMode: _rescueAppliedForCurrentCard,
+      ),
+    );
 
     if (_queue.isNotEmpty && _queue.first == cardId) {
       _queue.removeAt(0);
@@ -493,6 +508,7 @@ class _LearnModeScreenState extends ConsumerState<LearnModeScreen> {
   }
 
   void _showChapterComplete() {
+    unawaited(_flushOutcomeInvalidations());
     final next = _chapterIndex + 2;
     final total = _chapterCardIds.length;
     final completedAfterThis = _chapterCompleted.where((v) => v).length;
@@ -715,6 +731,7 @@ class _LearnModeScreenState extends ConsumerState<LearnModeScreen> {
   }
 
   void _showResult() {
+    unawaited(_flushOutcomeInvalidations());
     final l10n = AppLocalizations.of(context);
     final accuracy = _totalAttempts == 0
         ? 0
@@ -788,10 +805,12 @@ class _LearnModeScreenState extends ConsumerState<LearnModeScreen> {
               onLeft: () {
                 Navigator.pop(context);
                 _clearLearnResume();
+                unawaited(_flushOutcomeInvalidations());
                 _initSession();
               },
               onRight: () {
                 _clearLearnResume();
+                unawaited(_flushOutcomeInvalidations());
                 Navigator.pop(context);
                 Navigator.pop(context);
               },
@@ -840,7 +859,9 @@ class _LearnModeScreenState extends ConsumerState<LearnModeScreen> {
     );
   }
 
-  void _goHomeSmooth() {
+  Future<void> _goHomeSmooth() async {
+    await _flushOutcomeInvalidations();
+    if (!mounted) return;
     context.go('/');
   }
 
@@ -961,7 +982,7 @@ class _LearnModeScreenState extends ConsumerState<LearnModeScreen> {
                 child: SingleChildScrollView(
                   padding: const EdgeInsets.fromLTRB(24, 28, 24, 20),
                   child: AnimatedContainer(
-                    duration: const Duration(milliseconds: 70),
+                    duration: const Duration(milliseconds: 90),
                     curve: Curves.easeOut,
                     transform: Matrix4.translationValues(
                       _questionCardShakeX,
@@ -970,7 +991,7 @@ class _LearnModeScreenState extends ConsumerState<LearnModeScreen> {
                     ),
                     child: AnimatedScale(
                       scale: _questionCardScale,
-                      duration: const Duration(milliseconds: 160),
+                      duration: const Duration(milliseconds: 130),
                       curve: Curves.easeOutCubic,
                       child: Container(
                         width: double.infinity,
@@ -981,35 +1002,30 @@ class _LearnModeScreenState extends ConsumerState<LearnModeScreen> {
                           borderColor: AppTheme.indigo.withValues(alpha: 0.24),
                           elevation: 2,
                         ),
-                        child: AnimatedSize(
+                        child: AnimatedSwitcher(
                           duration: const Duration(milliseconds: 220),
-                          curve: Curves.easeOutCubic,
-                          alignment: Alignment.topCenter,
-                          child: AnimatedSwitcher(
-                            duration: const Duration(milliseconds: 260),
-                            switchInCurve: Curves.easeOutCubic,
-                            switchOutCurve: Curves.easeInCubic,
-                            transitionBuilder: (child, animation) {
-                              final offset = Tween<Offset>(
-                                begin: const Offset(0.03, 0),
-                                end: Offset.zero,
-                              ).animate(animation);
-                              return FadeTransition(
-                                opacity: animation,
-                                child: SlideTransition(
-                                  position: offset,
-                                  child: child,
-                                ),
-                              );
-                            },
-                            child: KeyedSubtree(
-                              key: ValueKey(
-                                'q_${currentCard.id}_${type.name}_${_currentDirection.name}',
+                          switchInCurve: Curves.easeOutCubic,
+                          switchOutCurve: Curves.easeInCubic,
+                          transitionBuilder: (child, animation) {
+                            final offset = Tween<Offset>(
+                              begin: const Offset(0.02, 0),
+                              end: Offset.zero,
+                            ).animate(animation);
+                            return FadeTransition(
+                              opacity: animation,
+                              child: SlideTransition(
+                                position: offset,
+                                child: child,
                               ),
-                              child: type == _LearnQuestionType.multipleChoice
-                                  ? _buildMultipleChoice(currentCard)
-                                  : _buildTextInput(currentCard),
+                            );
+                          },
+                          child: KeyedSubtree(
+                            key: ValueKey(
+                              'q_${currentCard.id}_${type.name}_${_currentDirection.name}',
                             ),
+                            child: type == _LearnQuestionType.multipleChoice
+                                ? _buildMultipleChoice(currentCard)
+                                : _buildTextInput(currentCard),
                           ),
                         ),
                       ),
@@ -1590,21 +1606,76 @@ class _LearnModeScreenState extends ConsumerState<LearnModeScreen> {
     _localStorage.clearLearnModeResume(widget.setId);
   }
 
+  Future<void> _recordLearnOutcome({
+    required String cardId,
+    required bool isCorrect,
+    required int stageBefore,
+    required int stageAfter,
+    required bool hintUsed,
+    required bool rescueMode,
+  }) async {
+    try {
+      await ref
+          .read(studyOutcomeRecorderProvider)
+          .recordRating(
+            cardId: cardId,
+            setId: widget.setId,
+            rating: _ratingForLearnOutcome(
+              isCorrect: isCorrect,
+              stageBefore: stageBefore,
+              hintUsed: hintUsed,
+            ),
+            reviewType: 'learn',
+            metadata: <String, dynamic>{
+              'stageBefore': stageBefore,
+              'stageAfter': stageAfter,
+              'hintUsed': hintUsed,
+              'rescueMode': rescueMode,
+              'chapterIndex': _chapterIndex,
+            },
+          );
+      _outcomesDirty = true;
+    } catch (e) {
+      debugPrint('Failed to record learn outcome: $e');
+    }
+  }
+
+  void _trackOutcomeWrite(Future<void> future) {
+    _pendingOutcomeWrites.add(future);
+    unawaited(future.whenComplete(() => _pendingOutcomeWrites.remove(future)));
+  }
+
+  Future<void> _flushOutcomeInvalidations() async {
+    if (_pendingOutcomeWrites.isNotEmpty) {
+      await Future.wait(_pendingOutcomeWrites.toList());
+    }
+    if (!_outcomesDirty) return;
+    _outcomesDirty = false;
+    ref.invalidate(allCardProgressProvider);
+    ref.invalidate(allReviewLogsProvider);
+  }
+
+  int _ratingForLearnOutcome({
+    required bool isCorrect,
+    required int stageBefore,
+    required bool hintUsed,
+  }) {
+    if (!isCorrect) return 1;
+    if (hintUsed) return 2;
+    if (stageBefore <= 0) return 2;
+    if (stageBefore >= _masteryStage - 1 && _streak >= 5) return 4;
+    return 3;
+  }
+
   void _triggerQuestionCardPulse({required bool isCorrect}) {
     if (!mounted) return;
     final token = ++_questionCardAnimToken;
     if (isCorrect) {
       setState(() {
         _questionCardShakeX = 0;
-        _questionCardScale = 1.012;
+        _questionCardScale = 1.006;
       });
-      Future<void>.delayed(const Duration(milliseconds: 90), () {
-        if (!mounted || token != _questionCardAnimToken) return;
-        setState(() {
-          _questionCardScale = 0.997;
-        });
-      });
-      Future<void>.delayed(const Duration(milliseconds: 170), () {
+      Future<void>.delayed(const Duration(milliseconds: 120), () {
         if (!mounted || token != _questionCardAnimToken) return;
         setState(() {
           _questionCardScale = 1.0;
@@ -1614,22 +1685,14 @@ class _LearnModeScreenState extends ConsumerState<LearnModeScreen> {
     }
 
     setState(() {
-      _questionCardScale = 0.995;
-      _questionCardShakeX = -6;
+      _questionCardScale = 0.998;
+      _questionCardShakeX = -4;
     });
-    Future<void>.delayed(const Duration(milliseconds: 55), () {
+    Future<void>.delayed(const Duration(milliseconds: 60), () {
       if (!mounted || token != _questionCardAnimToken) return;
-      setState(() => _questionCardShakeX = 6);
+      setState(() => _questionCardShakeX = 4);
     });
-    Future<void>.delayed(const Duration(milliseconds: 110), () {
-      if (!mounted || token != _questionCardAnimToken) return;
-      setState(() => _questionCardShakeX = -4);
-    });
-    Future<void>.delayed(const Duration(milliseconds: 165), () {
-      if (!mounted || token != _questionCardAnimToken) return;
-      setState(() => _questionCardShakeX = 3);
-    });
-    Future<void>.delayed(const Duration(milliseconds: 220), () {
+    Future<void>.delayed(const Duration(milliseconds: 120), () {
       if (!mounted || token != _questionCardAnimToken) return;
       setState(() {
         _questionCardShakeX = 0;

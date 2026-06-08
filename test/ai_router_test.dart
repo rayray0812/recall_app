@@ -105,20 +105,20 @@ void main() {
   });
 
   group('AiRouter.tierFor', () {
-    test('hints/mnemonic/confusion/example are localOnly', () {
+    test('hints/mnemonic/confusion are localOnly', () {
       expect(AiRouter.tierFor(AiTaskType.reviewHint), AiTaskTier.localOnly);
       expect(AiRouter.tierFor(AiTaskType.mnemonic), AiTaskTier.localOnly);
       expect(
         AiRouter.tierFor(AiTaskType.confusionDiagnosis),
         AiTaskTier.localOnly,
       );
-      expect(
-        AiRouter.tierFor(AiTaskType.exampleSentence),
-        AiTaskTier.localOnly,
-      );
     });
 
-    test('photo import + speaking score are localPreferred', () {
+    test('example/photo import/speaking score are localPreferred', () {
+      expect(
+        AiRouter.tierFor(AiTaskType.exampleSentence),
+        AiTaskTier.localPreferred,
+      );
       expect(
         AiRouter.tierFor(AiTaskType.photoImport),
         AiTaskTier.localPreferred,

@@ -8,9 +8,9 @@
 /// ⚠️ **LOCAL PLACEHOLDER ONLY — not a security/billing boundary.** The current
 /// tier is read from local storage (`aiEntitlementProvider`), so it can be
 /// edited by a determined user. That is acceptable while the user supplies their
-/// own API key (the cost is theirs). Before Grasp uses its own server-side
-/// provider keys, the authoritative entitlement MUST come from server
-/// verification (RevenueCat / StoreKit / Supabase) — local should only cache it.
+/// own API key (the cost is theirs). Owner-funded AI must use the server-side
+/// proxy/entitlement tables (see `docs/ai_cloud_proxy_security_plan.md`), and
+/// Flutter should treat local entitlement as a debug/cache value only.
 enum AiEntitlement {
   /// Default tier: bounded daily allowance for cloud AI.
   free,

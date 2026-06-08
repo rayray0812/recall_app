@@ -129,7 +129,10 @@ class LocalAiService {
           temperature: 0.7,
           topK: 40,
         );
-        return cleanSingleSentence(raw);
+        final sentence = cleanSingleSentence(raw);
+        return sentence.toLowerCase().contains(term.toLowerCase())
+            ? sentence
+            : '';
       },
     );
   }
@@ -173,7 +176,11 @@ class LocalAiService {
         temperature: 0.8,
         topK: 50,
       );
-      final list = parseDistractorLines(raw, exclude: correctOption, max: count);
+      final list = parseDistractorLines(
+        raw,
+        exclude: correctOption,
+        max: count,
+      );
       analytics.logEvent(
         taskType: task.type,
         provider: task.provider,
@@ -249,7 +256,8 @@ class LocalAiService {
     required String term,
     required String definition,
   }) {
-    return '''你是英語學習助教。用單字 "$term" 造一個自然、簡單的例句，適合高中生理解。
+    return '''/no_think
+你是英語學習助教。用單字 "$term" 造一個自然、簡單的例句，適合高中生理解。
 
 單字：$term
 意思：$definition
@@ -258,6 +266,7 @@ class LocalAiService {
 - 只輸出一句例句，句子裡必須包含 "$term"
 - 句子簡短、口語、貼近生活
 - 不要附中文翻譯，也不要解釋
+- 不要輸出 <think>、推理過程、標籤或多餘文字
 
 例句：''';
   }
@@ -302,39 +311,29 @@ class LocalAiService {
   /// Trim model output to the first non-empty sentence.
   /// Strips leading labels (e.g. "提示：", "口訣：") and quote marks.
   static String cleanSingleSentence(String raw) {
-    var text = raw.trim();
+    var text = _stripReasoning(raw).trim();
     if (text.isEmpty) return '';
 
     // Strip common Chinese labels the model may echo back
-    for (final label in const [
-      '提示：',
-      '口訣：',
-      '例句：',
-      'Hint:',
-      'Mnemonic:',
-      'Example:',
-    ]) {
-      if (text.startsWith(label)) {
-        text = text.substring(label.length).trim();
-      }
-    }
+    text = _stripLeadingLabels(text);
 
     // Take the first paragraph
-    final firstBreak = text.indexOf('\n');
-    if (firstBreak != -1) {
-      text = text.substring(0, firstBreak).trim();
-    }
+    text = _firstUsefulLine(text);
+    text = _stripLeadingLabels(text);
 
     // Strip surrounding quotes / markdown
     text = text.replaceAll(RegExp(r'^["「『]+|["」』]+$'), '');
     text = text.replaceAll(RegExp(r'^\*\*|\*\*$'), '').trim();
+    if (text.toLowerCase() == 'think' || text.toLowerCase() == '/think') {
+      return '';
+    }
 
     return text;
   }
 
   /// Trim model output to the first 1-2 sentences (for L3).
   static String cleanShortParagraph(String raw) {
-    var text = raw.trim();
+    var text = _stripReasoning(raw).trim();
     if (text.isEmpty) return '';
 
     // Drop any leading "1." or "•" list bullets the model may insert
@@ -349,6 +348,56 @@ class LocalAiService {
         .take(2)
         .toList();
     return lines.join('\n');
+  }
+
+  static String _stripReasoning(String raw) {
+    var text = raw.trim();
+    if (text.isEmpty) return '';
+
+    // Qwen3-style reasoning models may emit <think>...</think> before the
+    // answer. Remove complete blocks first.
+    text = text.replaceAll(
+      RegExp(r'<think>[\s\S]*?</think>', caseSensitive: false),
+      '',
+    );
+
+    // If the runtime returns an unfinished <think> block, do not salvage lines
+    // from it. Those lines are reasoning, not user-facing output.
+    if (text.toLowerCase().contains('<think>')) {
+      return '';
+    }
+
+    return text.trim();
+  }
+
+  static String _stripLeadingLabels(String text) {
+    var out = text.trim();
+    for (final label in const [
+      '提示：',
+      '口訣：',
+      '例句：',
+      '答案：',
+      'Hint:',
+      'Mnemonic:',
+      'Example:',
+      'Answer:',
+    ]) {
+      if (out.startsWith(label)) {
+        out = out.substring(label.length).trim();
+      }
+    }
+    return out;
+  }
+
+  static String _firstUsefulLine(String text) {
+    for (final line in text.split('\n')) {
+      final cleaned = _stripLeadingLabels(line).trim();
+      if (cleaned.isEmpty) continue;
+      if (cleaned.startsWith('<')) continue;
+      if (cleaned.toLowerCase() == 'think') continue;
+      return cleaned;
+    }
+    return '';
   }
 
   /// Parse a model's multi-line distractor output into clean option strings.

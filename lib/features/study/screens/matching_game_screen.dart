@@ -14,7 +14,9 @@ import 'package:recall_app/core/widgets/app_back_button.dart';
 import 'package:recall_app/features/study/widgets/completion_celebrate_overlay.dart';
 import 'package:recall_app/features/study/widgets/matching_tile.dart';
 import 'package:recall_app/models/flashcard.dart';
+import 'package:recall_app/providers/fsrs_provider.dart';
 import 'package:recall_app/providers/study_set_provider.dart';
+import 'package:recall_app/providers/stats_provider.dart';
 
 class MatchingGameScreen extends ConsumerStatefulWidget {
   final String setId;
@@ -46,6 +48,8 @@ class _MatchingGameScreenState extends ConsumerState<MatchingGameScreen>
   bool _hasStarted = false;
   bool _showCompletionCelebrate = false;
   bool _navigatingToResult = false;
+  bool _outcomesDirty = false;
+  final Set<Future<void>> _pendingOutcomeWrites = <Future<void>>{};
   final _xpToastKey = GlobalKey<XpToastOverlayState>();
 
   @override
@@ -145,6 +149,7 @@ class _MatchingGameScreenState extends ConsumerState<MatchingGameScreen>
       StudyHaptics.onMatch();
       final earned = ref.read(sessionXpProvider.notifier).onCorrect();
       _xpToastKey.currentState?.showXp(earned);
+      _trackOutcomeWrite(_recordMatchOutcome(first.cardId, rating: 3));
       setState(() {
         _matchedCardIds.add(first.cardId);
         _selectedIndex = null;
@@ -159,6 +164,12 @@ class _MatchingGameScreenState extends ConsumerState<MatchingGameScreen>
     } else {
       StudyHaptics.onMismatch();
       ref.read(sessionXpProvider.notifier).onIncorrect();
+      _trackOutcomeWrite(
+        _recordMismatchOutcome(
+          firstCardId: first.cardId,
+          secondCardId: second.cardId,
+        ),
+      );
       setState(() {
         _incorrectIndices.addAll([_selectedIndex!, index]);
       });
@@ -173,8 +184,76 @@ class _MatchingGameScreenState extends ConsumerState<MatchingGameScreen>
     }
   }
 
-  void _showResults() {
+  void _trackOutcomeWrite(Future<void> future) {
+    _pendingOutcomeWrites.add(future);
+    unawaited(future.whenComplete(() => _pendingOutcomeWrites.remove(future)));
+  }
+
+  Future<void> _recordMatchOutcome(String cardId, {required int rating}) async {
+    try {
+      await ref
+          .read(studyOutcomeRecorderProvider)
+          .recordRating(
+            cardId: cardId,
+            setId: widget.setId,
+            rating: rating,
+            reviewType: 'match',
+            metadata: <String, dynamic>{'matched': true},
+          );
+      _outcomesDirty = true;
+    } catch (e) {
+      debugPrint('Failed to record matching outcome: $e');
+    }
+  }
+
+  Future<void> _recordMismatchOutcome({
+    required String firstCardId,
+    required String secondCardId,
+  }) async {
+    try {
+      final recorder = ref.read(studyOutcomeRecorderProvider);
+      await recorder.recordRating(
+        cardId: firstCardId,
+        setId: widget.setId,
+        rating: 2,
+        reviewType: 'match',
+        chosenDistractorId: secondCardId,
+        metadata: <String, dynamic>{
+          'matched': false,
+          'confusedWithCardId': secondCardId,
+        },
+      );
+      await recorder.recordRating(
+        cardId: secondCardId,
+        setId: widget.setId,
+        rating: 2,
+        reviewType: 'match',
+        chosenDistractorId: firstCardId,
+        metadata: <String, dynamic>{
+          'matched': false,
+          'confusedWithCardId': firstCardId,
+        },
+      );
+      _outcomesDirty = true;
+    } catch (e) {
+      debugPrint('Failed to record matching mismatch: $e');
+    }
+  }
+
+  Future<void> _flushOutcomeInvalidations() async {
+    if (_pendingOutcomeWrites.isNotEmpty) {
+      await Future.wait(_pendingOutcomeWrites.toList());
+    }
+    if (!_outcomesDirty) return;
+    _outcomesDirty = false;
+    ref.invalidate(allCardProgressProvider);
+    ref.invalidate(allReviewLogsProvider);
+  }
+
+  Future<void> _showResults() async {
     if (_navigatingToResult) return;
+    await _flushOutcomeInvalidations();
+    if (!mounted) return;
     _navigatingToResult = true;
     final accuracy = _attempts == 0
         ? 100
@@ -197,10 +276,12 @@ class _MatchingGameScreenState extends ConsumerState<MatchingGameScreen>
     });
     await _completionController.forward(from: 0);
     if (!mounted) return;
-    _showResults();
+    await _showResults();
   }
 
-  void _goHomeSmooth() {
+  Future<void> _goHomeSmooth() async {
+    await _flushOutcomeInvalidations();
+    if (!mounted) return;
     context.go('/');
   }
 
@@ -285,10 +366,7 @@ class _MatchingGameScreenState extends ConsumerState<MatchingGameScreen>
                   switchInCurve: Curves.easeOutCubic,
                   switchOutCurve: Curves.easeInCubic,
                   transitionBuilder: (child, animation) {
-                    return FadeTransition(
-                      opacity: animation,
-                      child: child,
-                    );
+                    return FadeTransition(opacity: animation, child: child);
                   },
                   child: _hasStarted
                       ? Padding(
@@ -397,10 +475,7 @@ class _MatchingGameScreenState extends ConsumerState<MatchingGameScreen>
                     switchInCurve: Curves.easeOutCubic,
                     switchOutCurve: Curves.easeInCubic,
                     transitionBuilder: (child, animation) {
-                      return FadeTransition(
-                        opacity: animation,
-                        child: child,
-                      );
+                      return FadeTransition(opacity: animation, child: child);
                     },
                     child: !_hasStarted
                         ? Center(
@@ -529,72 +604,74 @@ class _MatchingGameScreenState extends ConsumerState<MatchingGameScreen>
                                 final tileW = availW / crossCount;
                                 final aspect = tileW / tileH;
 
-                                return AnimatedBuilder(
-                                  animation: _gridIntroController,
-                                  builder: (context, _) {
-                                    return GridView.builder(
-                                      physics:
-                                          const NeverScrollableScrollPhysics(),
-                                      gridDelegate:
-                                          SliverGridDelegateWithFixedCrossAxisCount(
-                                            crossAxisCount: crossCount,
-                                            childAspectRatio: aspect.clamp(
-                                              0.78,
-                                              1.1,
+                                return RepaintBoundary(
+                                  child: AnimatedBuilder(
+                                    animation: _gridIntroController,
+                                    builder: (context, _) {
+                                      return GridView.builder(
+                                        physics:
+                                            const NeverScrollableScrollPhysics(),
+                                        gridDelegate:
+                                            SliverGridDelegateWithFixedCrossAxisCount(
+                                              crossAxisCount: crossCount,
+                                              childAspectRatio: aspect.clamp(
+                                                0.78,
+                                                1.1,
+                                              ),
+                                              crossAxisSpacing: spacing,
+                                              mainAxisSpacing: spacing,
                                             ),
-                                            crossAxisSpacing: spacing,
-                                            mainAxisSpacing: spacing,
-                                          ),
-                                      itemCount: tileCount,
-                                      itemBuilder: (context, index) {
-                                        final tile = _tiles[index];
-                                        MatchingTileState state;
+                                        itemCount: tileCount,
+                                        itemBuilder: (context, index) {
+                                          final tile = _tiles[index];
+                                          MatchingTileState state;
 
-                                        if (_matchedCardIds.contains(
-                                          tile.cardId,
-                                        )) {
-                                          state = MatchingTileState.matched;
-                                        } else if (_incorrectIndices.contains(
-                                          index,
-                                        )) {
-                                          state = MatchingTileState.incorrect;
-                                        } else if (_selectedIndex == index) {
-                                          state = MatchingTileState.selected;
-                                        } else {
-                                          state = MatchingTileState.normal;
-                                        }
+                                          if (_matchedCardIds.contains(
+                                            tile.cardId,
+                                          )) {
+                                            state = MatchingTileState.matched;
+                                          } else if (_incorrectIndices.contains(
+                                            index,
+                                          )) {
+                                            state = MatchingTileState.incorrect;
+                                          } else if (_selectedIndex == index) {
+                                            state = MatchingTileState.selected;
+                                          } else {
+                                            state = MatchingTileState.normal;
+                                          }
 
-                                        final denom = tileCount <= 1
-                                            ? 1
-                                            : tileCount - 1;
-                                        final start = (index / denom) * 0.45;
-                                        final end = (start + 0.45).clamp(
-                                          0.0,
-                                          1.0,
-                                        );
-                                        final curve = Interval(
-                                          start,
-                                          end,
-                                          curve: Curves.easeOutCubic,
-                                        );
-                                        final t = curve.transform(
-                                          _gridIntroController.value,
-                                        );
+                                          final denom = tileCount <= 1
+                                              ? 1
+                                              : tileCount - 1;
+                                          final start = (index / denom) * 0.35;
+                                          final end = (start + 0.35).clamp(
+                                            0.0,
+                                            1.0,
+                                          );
+                                          final curve = Interval(
+                                            start,
+                                            end,
+                                            curve: Curves.easeOutCubic,
+                                          );
+                                          final t = curve.transform(
+                                            _gridIntroController.value,
+                                          );
 
-                                        return Opacity(
-                                          opacity: t,
-                                          child: Transform.translate(
-                                            offset: Offset(0, (1 - t) * 18),
-                                            child: MatchingTile(
-                                              text: tile.text,
-                                              state: state,
-                                              onTap: () => _onTileTap(index),
+                                          return Opacity(
+                                            opacity: t,
+                                            child: Transform.translate(
+                                              offset: Offset(0, (1 - t) * 12),
+                                              child: MatchingTile(
+                                                text: tile.text,
+                                                state: state,
+                                                onTap: () => _onTileTap(index),
+                                              ),
                                             ),
-                                          ),
-                                        );
-                                      },
-                                    );
-                                  },
+                                          );
+                                        },
+                                      );
+                                    },
+                                  ),
                                 );
                               },
                             ),
@@ -604,11 +681,7 @@ class _MatchingGameScreenState extends ConsumerState<MatchingGameScreen>
               ],
             ),
             // Combo indicator
-            const Positioned(
-              top: 8,
-              right: 16,
-              child: ComboIndicator(),
-            ),
+            const Positioned(top: 8, right: 16, child: ComboIndicator()),
             // XP toast
             Positioned(
               top: 50,

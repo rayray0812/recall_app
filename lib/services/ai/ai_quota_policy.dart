@@ -16,18 +16,19 @@ abstract final class AiQuotaPolicy {
   static const int unlimited = -1;
 
   /// Whether running [type] in the cloud incurs cost and is therefore metered.
-  /// Local-only tasks (hints / mnemonic / confusion / example sentence) run on
-  /// the device for free and never consume quota.
+  /// Local-only tasks (hints / mnemonic / confusion) run on the device for free
+  /// and never consume quota. Example sentences prefer local, but cloud
+  /// fallback is metered because it uses the server-side provider key.
   static bool isMetered(AiTaskType type) {
     return switch (type) {
+      AiTaskType.exampleSentence ||
       AiTaskType.conversationTurn ||
       AiTaskType.smartDistractors ||
       AiTaskType.photoImport ||
       AiTaskType.speakingScore => true,
       AiTaskType.reviewHint ||
       AiTaskType.mnemonic ||
-      AiTaskType.confusionDiagnosis ||
-      AiTaskType.exampleSentence => false,
+      AiTaskType.confusionDiagnosis => false,
     };
   }
 
@@ -38,6 +39,7 @@ abstract final class AiQuotaPolicy {
       AiEntitlement.proAi || AiEntitlement.classroom => unlimited,
       AiEntitlement.plus => switch (type) {
         AiTaskType.conversationTurn => 200,
+        AiTaskType.exampleSentence => 300,
         AiTaskType.smartDistractors => 500,
         AiTaskType.photoImport => 100,
         AiTaskType.speakingScore => 200,
@@ -45,6 +47,7 @@ abstract final class AiQuotaPolicy {
       },
       AiEntitlement.free => switch (type) {
         AiTaskType.conversationTurn => 30,
+        AiTaskType.exampleSentence => 30,
         AiTaskType.smartDistractors => 60,
         AiTaskType.photoImport => 10,
         AiTaskType.speakingScore => 20,

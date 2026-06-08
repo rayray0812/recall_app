@@ -4,7 +4,8 @@
 > 還沒做的功能、以及只能在實機驗證的待辦。最後更新：2026-06-05（智慧干擾選項 cloudPreferred + Groq 生成器；AI 成本閘門 entitlement/quota/gateway 完成且四個雲端任務全面計費，見 §2.5/§2.6/§B）。
 >
 > 相關文件：`ai_strategy_plan.md`（本地優先策略總綱）、`ai_model_engine_plan.md`
-> （模型選型 + LiteRT-LM 引擎遷移）。本檔是「目前做到哪 / 接下來做什麼」的彙整。
+> （模型選型 + LiteRT-LM 引擎遷移）、`ai_cloud_proxy_security_plan.md`
+> （付費 AI / BYO token / server-side owner token 保護）。本檔是「目前做到哪 / 接下來做什麼」的彙整。
 
 ---
 
@@ -70,8 +71,11 @@ AI 功能上線到學生市場前，必須補齊：
 - [x] **gateway 全面套用**：四個雲端任務皆於雲端 dispatch 點用 `tryConsume` 原子守門 + 計費。`smartDistractors`(cloud 分支)、`photoImport`(`_callAiExtract`:gemma=本地免費、groq/gemini=雲端,耗盡 throw `quotaExceeded` 走既有錯誤 UI)、`conversationTurn`(每輪,耗盡→`_handleEngineError(quotaExceeded)` 降級 local coach)、`speakingScore`(`_evaluateTurnAsync`,耗盡→`_evaluateTurnOffline`;consume 已改 `await`,修正 code review B1)。各自有既有離線/降級路徑,配額耗盡不會中斷流程。`smartDistractorsAvailableProvider` cloud 分支已加 Groq key 檢查(修正 P2:避免只有 Gemini key 時白做 prefetch)。
 - [x] **Groq 錯誤訊息不再內嵌 response body**(`groq_completion_service` / `groq_conversation_engine` / `groq_vision_service`):body 仍用於分類,但不進 message/log,避免敏感內容入 debug log(修正 code review P5)。
 - [x] **provider-attempt 計費**(code review C2):`FallbackConversationEngine` 新增 `onAttempt` callback,**每次 provider dispatch** 各回報一筆(provider/success/failureReason/elapsed/in+out tokens);`conversationEngineProvider` 一律包 Fallback(連單一引擎也是)並把 attempt 記成 per-provider usage event。failover 打兩家 → 記兩筆,成本核算不再低估。引擎本身不依賴 Hive/analytics(callback 注入)。移除 `conversation_session_provider` 原本「一輪一筆」的記錄避免重複。新增 2 測試。
-- [x] **release entitlement 強制 free**(code review 高風險):新 `effectiveAiEntitlementProvider` 為所有配額決策的單一來源——**release build 一律 free**(忽略本地 Hive,杜絕改本地拿 Pro),debug 才honor本地值供測試。所有 quota 消費點(smartDistractors/conversation turn/speaking score/photoImport)+ 用量卡 + 對話 banner 皆改讀 effective。接 server entitlement 時只改這一處。
-  - [ ] **entitlement 真實來源(仍待)**:目前無付費/伺服器同步;需接 RevenueCat/StoreKit 或 Supabase,將 server-verified 值餵進 `effectiveAiEntitlementProvider` 取代 release 的 free 分支。
+- [x] **release entitlement 改讀 server**(code review 高風險):`effectiveAiEntitlementProvider` 為所有配額決策的單一來源。debug 才 honor 本地 `aiEntitlementProvider` 供測試；release 改讀 `serverAiEntitlementProvider` → Supabase `user_ai_entitlements`，signed-out / missing row / expired / network error 皆 fail-closed 成 free，杜絕改本地 Hive 拿 Pro。
+  - [ ] **付款寫入流程(仍待)**:需接 RevenueCat/StoreKit/Admin/Classroom，付款或授權成功後由 server 寫入 `user_ai_entitlements`；client 只能讀，不能寫。
+- [x] **owner-token server-side proxy 底座**(2026-06-08):新增 `supabase/functions/ai-proxy` + `202606080001_ai_proxy_entitlements.sql` + Flutter `AiProxyClient`。Grasp 自家 provider key 只允許放 Supabase Edge Function secrets（如 `GRASP_GROQ_API_KEY`），Flutter client 沒有 apiKey 參數；Edge Function 驗證 JWT、讀 server entitlement、原子消耗 daily quota、限制 task/model/message/max tokens、寫 `ai_usage_events`，並淨化 provider error。BYO Gemini/Groq key 繼續只存在使用者端 secure storage。詳見 `docs/ai_cloud_proxy_security_plan.md`。
+  - [x] **smartDistractors 已接 proxy**:登入使用者雲端路徑優先走 `AiProxyClient`，owner token 只在 Supabase secrets；signed-out + BYO Groq key 保留舊直連；proxy 失敗回退隨機選項不中斷測驗。
+  - [ ] **下一步功能接線**:再接 `conversationTurn`；`photoImport` / `speakingScore` 因 payload 大，需先壓圖片/文字上限。
 - [x] **AI 用量 UI**（`ai_usage_card.dart`,在設定→AI 對話框）：顯示目前方案、今日各雲端任務用量(used/limit + ticker-free 進度條,耗盡轉紅)、近 24h token 彙總。**方案切換器僅 kDebugMode 顯示**(release 顯示唯讀方案);資料改由 `aiUsageViewProvider`(autoDispose 快取)一次組好,**不再每次 build 同步掃 Hive**(修正 code review 效能);card 吃 injected view model → widget test 全程不碰 Hive、無 teardown 卡死,4 測試(含 seeded 用量、Pro 無限、token 彙總)。
 - [x] **配額耗盡的主動提示**：拍照建卡——配額用盡時 throw `AiQuotaExceededException`(帶 entitlement),SnackBar 顯示 `aiQuotaUpgradeMessage`(免費→「升級 Plus」、付費→「明天重置」),與「供應商 rate-limit」的 `scanQuotaExceeded` 文案區分。對話——`isQuotaExhausted` 時於情境面板上方顯示 inline banner(同一份升級文案),聊天仍以 local coach 繼續、不中斷。純函式訊息 helper + 5 測試。
 

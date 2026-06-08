@@ -3,12 +3,15 @@ import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:hive_flutter/hive_flutter.dart';
+import 'package:recall_app/providers/auth_provider.dart';
 import 'package:recall_app/core/constants/app_constants.dart';
 import 'package:recall_app/providers/ai_provider_provider.dart';
 import 'package:recall_app/providers/gemini_key_provider.dart';
 import 'package:recall_app/services/ai/ai_capability_service.dart';
 import 'package:recall_app/services/ai/ai_entitlement.dart';
+import 'package:recall_app/services/ai/ai_entitlement_service.dart';
 import 'package:recall_app/services/ai/ai_model_catalog.dart';
+import 'package:recall_app/services/ai/ai_proxy_client.dart';
 import 'package:recall_app/services/ai/ai_quota_service.dart';
 import 'package:recall_app/services/ai/ai_router.dart';
 import 'package:recall_app/services/ai/device_power_policy.dart';
@@ -78,19 +81,39 @@ final aiEntitlementProvider =
       (ref) => AiEntitlementNotifier(),
     );
 
+/// Server-verified entitlement cache. Missing rows, signed-out users, expired
+/// tiers, network errors, and unconfigured Supabase all fail closed to free.
+final serverAiEntitlementProvider = FutureProvider<AiEntitlement>((ref) async {
+  ref.watch(currentUserProvider);
+  final service = AiEntitlementService(ref.watch(supabaseServiceProvider));
+  try {
+    return await service.fetchCurrent();
+  } catch (e) {
+    debugPrint('Server AI entitlement fetch failed: $e');
+    return AiEntitlement.free;
+  }
+});
+
 /// The entitlement that actually governs quota — the single source of truth for
-/// all metered-AI decisions. **In release builds this is forced to
-/// [AiEntitlement.free]**, because there is no trusted entitlement source yet
-/// and the locally-stored tier must never grant paid quotas (a user could edit
-/// local storage). In debug we honor [aiEntitlementProvider] so the dev plan
-/// switcher can be used for testing.
+/// all metered-AI decisions. In debug we honor [aiEntitlementProvider] so the
+/// dev plan switcher can be used for testing. In release we read the
+/// server-verified Supabase entitlement and fail closed to free while loading or
+/// on error.
 ///
-/// When server-verified entitlement (RevenueCat / StoreKit / Supabase) is wired
-/// up, replace the release branch with that verified value — do NOT simply read
-/// the local tier here.
+/// Do NOT read [aiEntitlementProvider] in release: it is local storage and can
+/// be edited by a determined user.
 final effectiveAiEntitlementProvider = Provider<AiEntitlement>((ref) {
   if (kDebugMode) return ref.watch(aiEntitlementProvider);
-  return AiEntitlement.free;
+  return ref.watch(serverAiEntitlementProvider).valueOrNull ??
+      AiEntitlement.free;
+});
+
+/// Server-side AI proxy client for owner-funded cloud AI.
+///
+/// The proxy owns all Grasp provider secrets in Supabase Edge Function env vars;
+/// Flutter only sends whitelisted task payloads and receives generated text.
+final aiProxyClientProvider = Provider<AiProxyClient>((ref) {
+  return AiProxyClient();
 });
 
 /// Daily cloud-AI usage tracker + quota enforcement (Hive-backed).
@@ -197,7 +220,8 @@ final localInferenceAllowedProvider = FutureProvider<bool>((ref) async {
     final level = await battery.batteryLevel;
     final batteryState = await battery.batteryState;
     final saveMode = await battery.isInBatterySaveMode;
-    final isCharging = batteryState == BatteryState.charging ||
+    final isCharging =
+        batteryState == BatteryState.charging ||
         batteryState == BatteryState.full;
     return DevicePowerPolicy.allowsLocalInference(
       DevicePowerSnapshot(
@@ -212,16 +236,36 @@ final localInferenceAllowedProvider = FutureProvider<bool>((ref) async {
   }
 });
 
-/// Whether a cloud provider can be called for routing.
+/// Whether a *BYO* cloud key is configured (provider not gemma + a key present).
 ///
 /// Choosing the on-device ("本機"/gemma) provider means cloud is NOT used for
 /// task routing — so selecting "本機" genuinely keeps tasks on-device, instead
 /// of that being controlled only by the separate privacy-mode toggle.
+///
+/// This intentionally does NOT account for the owner-funded server proxy, which
+/// is only available for some tasks — use [cloudConfiguredForTaskProvider] for
+/// routing decisions.
 final cloudConfiguredProvider = Provider<bool>((ref) {
   if (ref.watch(aiProviderProvider) == AiProvider.gemma) return false;
   final geminiKey = ref.watch(geminiKeyProvider);
   final groqKey = ref.watch(groqKeyProvider);
   return geminiKey.trim().isNotEmpty || groqKey.trim().isNotEmpty;
+});
+
+/// Whether [type] has a usable cloud path: either a BYO key, or — for tasks the
+/// client actually routes through the Grasp proxy ([proxyBackedTasks]) — a
+/// signed-in user (owner-funded). A signed-in keyless user is NOT considered
+/// cloud-capable for tasks without a proxy call site (conversation/photo import/
+/// speaking score), so those correctly require a key instead of silently
+/// "configuring" cloud and then degrading.
+final cloudConfiguredForTaskProvider = Provider.family<bool, AiTaskType>((
+  ref,
+  type,
+) {
+  if (ref.watch(aiProviderProvider) == AiProvider.gemma) return false;
+  if (ref.watch(cloudConfiguredProvider)) return true;
+  final user = ref.watch(currentUserProvider);
+  return user != null && proxyBackedTasks.contains(type);
 });
 
 /// The routing decision for a given AI task type, combining all live inputs
@@ -234,9 +278,8 @@ final aiRouteProvider = FutureProvider.family<AiRouteDecision, AiTaskType>((
   final localReady = await ref.watch(localModelReadyProvider.future);
   final online = ref.watch(aiOnlineProvider).valueOrNull ?? true;
   final privacyMode = ref.watch(aiPrivacyModeProvider);
-  final cloudConfigured = ref.watch(cloudConfiguredProvider);
-  final localAllowed =
-      await ref.watch(localInferenceAllowedProvider.future);
+  final cloudConfigured = ref.watch(cloudConfiguredForTaskProvider(type));
+  final localAllowed = await ref.watch(localInferenceAllowedProvider.future);
 
   return AiRouter.route(
     type: type,

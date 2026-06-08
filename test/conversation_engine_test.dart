@@ -18,6 +18,9 @@ class _FakeEngine implements ConversationEngine {
   String get name => _name;
 
   @override
+  void close() {}
+
+  @override
   Future<String> generateTurn({
     required String systemPrompt,
     required List<ConversationMessage> history,
@@ -85,10 +88,7 @@ void main() {
     });
 
     test('empty choices → empty string', () {
-      expect(
-        GroqConversationEngine.parseChatContent('{"choices":[]}'),
-        '',
-      );
+      expect(GroqConversationEngine.parseChatContent('{"choices":[]}'), '');
     });
 
     test('malformed JSON → empty string', () {
@@ -98,13 +98,10 @@ void main() {
 
   group('GeminiConversationEngine.buildContents', () {
     test('maps roles and appends user message', () {
-      final contents = GeminiConversationEngine.buildContents(
-        const [
-          ConversationMessage(isUser: false, text: 'q1'),
-          ConversationMessage(isUser: true, text: 'a1'),
-        ],
-        'a2',
-      );
+      final contents = GeminiConversationEngine.buildContents(const [
+        ConversationMessage(isUser: false, text: 'q1'),
+        ConversationMessage(isUser: true, text: 'a1'),
+      ], 'a2');
       expect(contents.length, 3);
       expect(contents[0].role, 'model');
       expect(contents[1].role, 'user');
@@ -119,10 +116,8 @@ void main() {
   });
 
   group('FallbackConversationEngine', () {
-    Future<String> run(FallbackConversationEngine e) => e.generateTurn(
-          systemPrompt: 's',
-          history: const [],
-        );
+    Future<String> run(FallbackConversationEngine e) =>
+        e.generateTurn(systemPrompt: 's', history: const []);
 
     test('returns the primary result without calling the secondary', () async {
       final primary = _FakeEngine('p', reply: 'PRIMARY');
@@ -150,11 +145,17 @@ void main() {
     test('throws the last error when all engines fail', () async {
       final primary = _FakeEngine(
         'p',
-        error: ConversationEngineException(ScanFailureReason.networkError, 'net'),
+        error: ConversationEngineException(
+          ScanFailureReason.networkError,
+          'net',
+        ),
       );
       final secondary = _FakeEngine(
         's',
-        error: ConversationEngineException(ScanFailureReason.serverError, '500'),
+        error: ConversationEngineException(
+          ScanFailureReason.serverError,
+          '500',
+        ),
       );
       final engine = FallbackConversationEngine([primary, secondary]);
       await expectLater(
@@ -170,9 +171,10 @@ void main() {
     });
 
     test('name joins member engine names', () {
-      final engine = FallbackConversationEngine(
-        [_FakeEngine('gemini', reply: 'x'), _FakeEngine('groq', reply: 'y')],
-      );
+      final engine = FallbackConversationEngine([
+        _FakeEngine('gemini', reply: 'x'),
+        _FakeEngine('groq', reply: 'y'),
+      ]);
       expect(engine.name, 'gemini+groq');
     });
 
@@ -186,10 +188,10 @@ void main() {
         ),
       );
       final secondary = _FakeEngine('groq', reply: 'OK');
-      final engine = FallbackConversationEngine(
-        [primary, secondary],
-        onAttempt: attempts.add,
-      );
+      final engine = FallbackConversationEngine([
+        primary,
+        secondary,
+      ], onAttempt: attempts.add);
 
       expect(await run(engine), 'OK');
       // One event per provider actually dispatched (not one per product turn).
@@ -202,17 +204,19 @@ void main() {
       expect(attempts[1].outputTokens, greaterThan(0));
     });
 
-    test('onAttempt records only the successful provider when primary works',
-        () async {
-      final attempts = <ConversationAttempt>[];
-      final engine = FallbackConversationEngine(
-        [_FakeEngine('gemini', reply: 'hi'), _FakeEngine('groq', reply: 'no')],
-        onAttempt: attempts.add,
-      );
-      await run(engine);
-      expect(attempts, hasLength(1));
-      expect(attempts.single.provider, 'gemini');
-      expect(attempts.single.success, isTrue);
-    });
+    test(
+      'onAttempt records only the successful provider when primary works',
+      () async {
+        final attempts = <ConversationAttempt>[];
+        final engine = FallbackConversationEngine([
+          _FakeEngine('gemini', reply: 'hi'),
+          _FakeEngine('groq', reply: 'no'),
+        ], onAttempt: attempts.add);
+        await run(engine);
+        expect(attempts, hasLength(1));
+        expect(attempts.single.provider, 'gemini');
+        expect(attempts.single.success, isTrue);
+      },
+    );
   });
 }

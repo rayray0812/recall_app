@@ -1,4 +1,6 @@
-# 社群功能實作規劃
+# 社群與可信題庫實作規劃
+
+> 2026-06-04 策略更新：社群不再以泛 UGC/留言互動為主軸。Grasp 的社群應服務台灣考試市場，優先提供**可信考試題庫**、老師認證題庫與班級派發能力。好友、留言、排行榜是輔助擴散，不是核心價值。
 
 ## 已完成基礎
 
@@ -51,3 +53,58 @@
 - 好友系統驗證涵蓋：搜尋、邀請、接受/拒絕、RLS 與聚合排行榜 RPC。
 - Widget smoke tests 覆蓋：空狀態、分類篩選、收藏切換、已下載狀態。
 - Supabase migration 需附 RLS policy，且匿名使用者只能讀公開內容，不能寫互動資料。
+
+## 下一階段：可信考試題庫（P0）
+
+### 目標
+
+讓學生搜尋「學測」、「全民英檢」、「多益」時，先看到官方/老師認證題庫，而不是一般使用者隨機發布內容。
+
+### 資料模型補強
+
+公開題庫需新增或補強欄位：
+
+- `source_type`: `official` / `teacher_verified` / `user`
+- `exam_type`: `gsat` / `gept` / `toeic` / `custom`
+- `exam_level`: 例如 GEPT 初級/中級/中高級，或學測核心/進階
+- `quality_score`: 綜合品質分
+- `review_completion_rate`: 下載後實際完成複習比例
+- `report_rate`: 檢舉率
+- `duplicate_score`: 與既有公開題庫相似度
+
+排序優先級：
+
+1. official
+2. teacher_verified
+3. high quality user content
+4. normal user content
+
+### 產品入口
+
+- 社群首頁新增「考試題庫」區塊。
+- 預設 chips：學測、GEPT、多益、老師認證、我的學校/班級。
+- 公開卡片顯示 source badge：官方 / 老師認證 / 社群。
+- 未審核或低品質題庫不應進熱門榜。
+
+### Moderation 原則
+
+- 未成年市場下，留言與公開內容必須預設走 moderation。
+- 官方/老師題庫可關閉留言，只保留評分與回報錯誤。
+- 使用者回報錯字/錯解釋應進入 correction queue，而不是普通留言。
+
+## 下一階段：班級與商業化（P1）
+
+- 老師可建立班級並派發 official / teacher_verified 題庫。
+- 班級 dashboard 顯示：
+  - 完成率
+  - 弱點單字排行
+  - 逾期未複習學生
+  - 題庫整體掌握度
+- 班級題庫可作為 Classroom 付費方案核心，而不是只賣社群功能。
+
+## 明確不做或延後
+
+- 不優先做開放式留言社群。
+- 不做公開個人動態牆。
+- 不做陌生人排行榜作為主入口。
+- 不讓未審核 UGC 壓過考試題庫。

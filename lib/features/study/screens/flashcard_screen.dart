@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:recall_app/core/constants/study_constants.dart';
@@ -17,6 +19,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:recall_app/models/flashcard.dart';
+import 'package:recall_app/providers/fsrs_provider.dart';
+import 'package:recall_app/providers/stats_provider.dart';
 import 'package:recall_app/providers/session_xp_provider.dart';
 import 'package:recall_app/providers/study_set_provider.dart';
 
@@ -40,6 +44,8 @@ class _FlashcardScreenState extends ConsumerState<FlashcardScreen>
   bool _roundDone = false;
   AnimationController? _celebrateController;
   bool _showCelebration = false;
+  bool _outcomesDirty = false;
+  final Set<Future<void>> _pendingOutcomeWrites = <Future<void>>{};
   final _xpToastKey = GlobalKey<XpToastOverlayState>();
 
   @override
@@ -95,6 +101,43 @@ class _FlashcardScreenState extends ConsumerState<FlashcardScreen>
         _playCelebrationThenShowRoundEnd();
       }
     });
+
+    _trackOutcomeWrite(_recordFlashcardOutcome(card, remembered: remembered));
+  }
+
+  void _trackOutcomeWrite(Future<void> future) {
+    _pendingOutcomeWrites.add(future);
+    unawaited(future.whenComplete(() => _pendingOutcomeWrites.remove(future)));
+  }
+
+  Future<void> _recordFlashcardOutcome(
+    Flashcard card, {
+    required bool remembered,
+  }) async {
+    try {
+      await ref
+          .read(studyOutcomeRecorderProvider)
+          .recordRating(
+            cardId: card.id,
+            setId: widget.setId,
+            rating: remembered ? 3 : 1,
+            reviewType: 'flashcard',
+            metadata: <String, dynamic>{'remembered': remembered},
+          );
+      _outcomesDirty = true;
+    } catch (e) {
+      debugPrint('Failed to record flashcard outcome: $e');
+    }
+  }
+
+  Future<void> _flushOutcomeInvalidations() async {
+    if (_pendingOutcomeWrites.isNotEmpty) {
+      await Future.wait(_pendingOutcomeWrites.toList());
+    }
+    if (!_outcomesDirty) return;
+    _outcomesDirty = false;
+    ref.invalidate(allCardProgressProvider);
+    ref.invalidate(allReviewLogsProvider);
   }
 
   Future<void> _playCelebrationThenShowRoundEnd() async {
@@ -106,13 +149,17 @@ class _FlashcardScreenState extends ConsumerState<FlashcardScreen>
     setState(() => _showCelebration = true);
     await controller.forward();
     if (!mounted) return;
+    await _flushOutcomeInvalidations();
+    if (!mounted) return;
     setState(() {
       _showCelebration = false;
       _roundDone = true;
     });
   }
 
-  void _goHomeSmooth() {
+  Future<void> _goHomeSmooth() async {
+    await _flushOutcomeInvalidations();
+    if (!mounted) return;
     context.go('/');
   }
 

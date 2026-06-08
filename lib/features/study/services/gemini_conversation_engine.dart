@@ -21,6 +21,9 @@ class GeminiConversationEngine implements ConversationEngine {
   String get name => 'gemini';
 
   @override
+  void close() {}
+
+  @override
   Future<String> generateTurn({
     required String systemPrompt,
     required List<ConversationMessage> history,
@@ -36,7 +39,9 @@ class GeminiConversationEngine implements ConversationEngine {
           maxOutputTokens: 220,
         ),
       );
-      final resp = await gm.generateContent(buildContents(history, userMessage));
+      final resp = await gm.generateContent(
+        buildContents(history, userMessage),
+      );
       final text = (resp.text ?? '').trim();
       if (text.isEmpty) {
         throw ConversationEngineException(
@@ -63,7 +68,10 @@ class GeminiConversationEngine implements ConversationEngine {
   ) {
     final contents = <Content>[
       for (final m in history)
-        if (m.isUser) Content.text(m.text) else Content.model([TextPart(m.text)]),
+        if (m.isUser)
+          Content.text(m.text)
+        else
+          Content.model([TextPart(m.text)]),
     ];
     if (userMessage.trim().isNotEmpty) {
       contents.add(Content.text(userMessage.trim()));

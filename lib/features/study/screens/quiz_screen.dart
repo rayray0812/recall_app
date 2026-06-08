@@ -486,12 +486,15 @@ class _QuizScreenState extends ConsumerState<QuizScreen>
         ).future,
       );
       if (!mounted || distractors == null || distractors.length < 3) return;
+      if (_currentIndex >= _questions.length ||
+          _smartKey(_questions[_currentIndex]) != key ||
+          _selectedOption != null) {
+        return;
+      }
       final texts = [correctText, ...distractors.take(3)]..shuffle(_random);
       final correctIndex = texts.indexOf(correctText);
       _smartCache[key] = _SmartMcOptions(texts, correctIndex);
-      // Only repaint to swap in AI options if the learner hasn't answered yet,
-      // so tiles never change out from under a selection.
-      if (_selectedOption == null) setState(() {});
+      setState(() {});
     } catch (_) {
       // Fail silent → keep baseline options.
     } finally {

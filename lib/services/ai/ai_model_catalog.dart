@@ -69,19 +69,20 @@ class ModelCatalog {
     note: '中高階 Android 預設；多模態；Apache-2.0 免授權直接下載',
   );
 
-  /// Qwen3 0.6B — lightweight / low-RAM option. Tiny + fast, decent Chinese.
+  /// Qwen3 0.6B mixed INT4 — lightweight / low-RAM option. Tiny + fast,
+  /// decent Chinese.
   /// Apache-2.0, ungated. Repo: litert-community/Qwen3-0.6B
   static const qwen3_06b = AiModelSpec(
-    id: 'Qwen3-0.6B',
-    displayName: 'Qwen3 0.6B（輕量·中文）',
+    id: 'qwen3-0.6b-mixed-int4',
+    displayName: 'Qwen3 0.6B INT4（輕量·中文）',
     tier: ModelTier.tiny,
-    sizeMb: 614,
+    sizeMb: 475,
     url:
-        'https://huggingface.co/litert-community/Qwen3-0.6B/resolve/main/Qwen3-0.6B.litertlm',
+        'https://huggingface.co/litert-community/Qwen3-0.6B/resolve/main/qwen3_0_6b_mixed_int4.litertlm',
     format: ModelFormat.litertlm,
     backend: LocalLlmBackend.androidLiteRtLm,
     strongChinese: true,
-    note: '低 RAM / 快速；繁中佳；Apache-2.0 免授權直接下載',
+    note: '低 RAM / 快速；繁中佳；mixed INT4；Apache-2.0 免授權直接下載',
   );
 
   static const all = <AiModelSpec>[gemma4E2b, qwen3_06b];

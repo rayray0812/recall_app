@@ -2,10 +2,18 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:recall_app/models/card_progress.dart';
 import 'package:recall_app/services/fsrs_service.dart';
 import 'package:recall_app/providers/study_set_provider.dart';
+import 'package:recall_app/services/study_outcome_recorder.dart';
 
 /// Singleton FsrsService provider.
 final fsrsServiceProvider = Provider<FsrsService>((ref) {
   return FsrsService();
+});
+
+final studyOutcomeRecorderProvider = Provider<StudyOutcomeRecorder>((ref) {
+  return StudyOutcomeRecorder(
+    localStorage: ref.watch(localStorageServiceProvider),
+    fsrsService: ref.watch(fsrsServiceProvider),
+  );
 });
 
 /// All CardProgress entries from local storage.

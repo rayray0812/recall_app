@@ -9,6 +9,7 @@ void main() {
   group('AiQuotaPolicy.isMetered', () {
     test('cloud-routable cost-bearing tasks are metered', () {
       expect(AiQuotaPolicy.isMetered(AiTaskType.conversationTurn), isTrue);
+      expect(AiQuotaPolicy.isMetered(AiTaskType.exampleSentence), isTrue);
       expect(AiQuotaPolicy.isMetered(AiTaskType.smartDistractors), isTrue);
       expect(AiQuotaPolicy.isMetered(AiTaskType.photoImport), isTrue);
       expect(AiQuotaPolicy.isMetered(AiTaskType.speakingScore), isTrue);
@@ -18,7 +19,6 @@ void main() {
       expect(AiQuotaPolicy.isMetered(AiTaskType.reviewHint), isFalse);
       expect(AiQuotaPolicy.isMetered(AiTaskType.mnemonic), isFalse);
       expect(AiQuotaPolicy.isMetered(AiTaskType.confusionDiagnosis), isFalse);
-      expect(AiQuotaPolicy.isMetered(AiTaskType.exampleSentence), isFalse);
     });
   });
 
@@ -58,6 +58,20 @@ void main() {
       );
       expect(free, greaterThan(0));
       expect(plus, greaterThan(free));
+      expect(
+        AiQuotaPolicy.dailyLimit(
+          AiEntitlement.free,
+          AiTaskType.exampleSentence,
+        ),
+        30,
+      );
+      expect(
+        AiQuotaPolicy.dailyLimit(
+          AiEntitlement.plus,
+          AiTaskType.exampleSentence,
+        ),
+        300,
+      );
     });
   });
 

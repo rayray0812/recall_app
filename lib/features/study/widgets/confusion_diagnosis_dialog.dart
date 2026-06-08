@@ -59,44 +59,51 @@ class _DiagnosisContent extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return AnimatedSize(
-      duration: const Duration(milliseconds: 200),
-      alignment: Alignment.topCenter,
-      child: switch (explanation) {
-        AsyncData(value: final text) when text != null && text.isNotEmpty =>
-          Text(
-            text,
-            style: const TextStyle(fontSize: 14, height: 1.45),
-          ),
-        AsyncData() || AsyncError() => Text(
-            l10n.confusionUnavailable,
-            style: TextStyle(
-              fontSize: 14,
-              color: Theme.of(context).colorScheme.outline,
+    final media = MediaQuery.sizeOf(context);
+    final maxHeight = (media.height * 0.45).clamp(120.0, 360.0);
+    final content = switch (explanation) {
+      AsyncData(value: final text) when text != null && text.isNotEmpty => Text(
+        text,
+        style: const TextStyle(fontSize: 14, height: 1.45),
+      ),
+      AsyncData() || AsyncError() => Text(
+        l10n.confusionUnavailable,
+        style: TextStyle(
+          fontSize: 14,
+          color: Theme.of(context).colorScheme.outline,
+        ),
+      ),
+      _ => Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          SizedBox(
+            width: 16,
+            height: 16,
+            child: CircularProgressIndicator(
+              strokeWidth: 2,
+              color: AppTheme.indigo.withValues(alpha: 0.7),
             ),
           ),
-        _ => Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              SizedBox(
-                width: 16,
-                height: 16,
-                child: CircularProgressIndicator(
-                  strokeWidth: 2,
-                  color: AppTheme.indigo.withValues(alpha: 0.7),
-                ),
+          const SizedBox(width: 12),
+          Flexible(
+            child: Text(
+              l10n.confusionGenerating,
+              style: TextStyle(
+                fontSize: 13,
+                color: AppTheme.indigo.withValues(alpha: 0.8),
               ),
-              const SizedBox(width: 12),
-              Text(
-                l10n.confusionGenerating,
-                style: TextStyle(
-                  fontSize: 13,
-                  color: AppTheme.indigo.withValues(alpha: 0.8),
-                ),
-              ),
-            ],
+            ),
           ),
-      },
+        ],
+      ),
+    };
+
+    return ConstrainedBox(
+      constraints: BoxConstraints(
+        maxWidth: media.width * 0.82,
+        maxHeight: maxHeight,
+      ),
+      child: SingleChildScrollView(child: content),
     );
   }
 }
