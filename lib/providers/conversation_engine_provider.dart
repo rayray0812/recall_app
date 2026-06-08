@@ -38,7 +38,7 @@ final conversationEngineProvider = Provider<ConversationEngine?>((ref) {
   // Always wrap (even a single engine) so every provider dispatch is logged as
   // its own usage event — keeping cost accounting accurate under failover
   // (docs §2.6). The engine stays storage-agnostic; we log here.
-  return FallbackConversationEngine(
+  final engine = FallbackConversationEngine(
     ordered,
     onAttempt: (a) {
       AiAnalyticsService().logEvent(
@@ -52,4 +52,8 @@ final conversationEngineProvider = Provider<ConversationEngine?>((ref) {
       );
     },
   );
+  // This provider rebuilds whenever the AI provider choice or a key changes;
+  // close the superseded engines' HTTP clients instead of leaking them.
+  ref.onDispose(engine.close);
+  return engine;
 });

@@ -47,7 +47,7 @@ class TagChips extends StatelessWidget {
   void _showAddTagDialog(BuildContext context) {
     final l10n = AppLocalizations.of(context);
     final controller = TextEditingController();
-    showDialog(
+    showDialog<void>(
       context: context,
       builder: (dialogContext) => AlertDialog(
         title: Text(l10n.addTag),
@@ -83,6 +83,6 @@ class TagChips extends StatelessWidget {
           ),
         ],
       ),
-    );
+    ).whenComplete(controller.dispose);
   }
 }

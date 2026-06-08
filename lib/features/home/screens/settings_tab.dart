@@ -729,6 +729,8 @@ class _SettingsTabState extends ConsumerState<SettingsTab> {
         );
       },
     );
+    geminiController.dispose();
+    groqController.dispose();
   }
 
   Widget _buildSettingsSheetContainer({

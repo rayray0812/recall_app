@@ -122,6 +122,7 @@ Return ONLY valid JSON:
     http.Client? client,
   }) async {
     if (apiKey.isEmpty || userResponse.trim().isEmpty) return null;
+    final ownsClient = client == null;
     final httpClient = client ?? http.Client();
     final prompt = buildScoringPrompt(
       aiQuestion: aiQuestion,
@@ -159,6 +160,9 @@ Return ONLY valid JSON:
       return parseFeedback(text);
     } catch (_) {
       return null;
+    } finally {
+      // Only close a client we created — an injected one is the caller's to own.
+      if (ownsClient) httpClient.close();
     }
   }
 

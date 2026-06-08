@@ -14,7 +14,8 @@ class GroqConversationEngine implements ConversationEngine {
     required this.apiKey,
     this.model = defaultModel,
     http.Client? client,
-  }) : _client = client ?? http.Client();
+  })  : _client = client ?? http.Client(),
+        _ownsClient = client == null;
 
   /// Llama 3.3 70B — strong, free on Groq, good for natural dialogue.
   static const String defaultModel = 'llama-3.3-70b-versatile';
@@ -25,9 +26,15 @@ class GroqConversationEngine implements ConversationEngine {
   final String apiKey;
   final String model;
   final http.Client _client;
+  final bool _ownsClient;
 
   @override
   String get name => 'groq';
+
+  @override
+  void close() {
+    if (_ownsClient) _client.close();
+  }
 
   @override
   Future<String> generateTurn({

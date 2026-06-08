@@ -38,6 +38,10 @@ abstract class ConversationEngine {
     required List<ConversationMessage> history,
     String userMessage = '',
   });
+
+  /// Release any owned resources (e.g. an HTTP client). Default no-op for
+  /// engines that hold nothing (e.g. the SDK-backed Gemini engine).
+  void close() {}
 }
 
 /// One provider dispatch within [FallbackConversationEngine], reported to
@@ -82,6 +86,13 @@ class FallbackConversationEngine implements ConversationEngine {
 
   @override
   String get name => engines.map((e) => e.name).join('+');
+
+  @override
+  void close() {
+    for (final engine in engines) {
+      engine.close();
+    }
+  }
 
   @override
   Future<String> generateTurn({

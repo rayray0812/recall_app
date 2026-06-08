@@ -136,7 +136,7 @@ class FolderManagementScreen extends ConsumerWidget {
     var selectedColor = folder?.colorHex ?? colorOptions[0];
     var selectedIcon = folder?.iconCodePoint ?? iconOptions[0];
 
-    showDialog(
+    showDialog<void>(
       context: context,
       builder: (dialogContext) => StatefulBuilder(
         builder: (ctx, setDialogState) => AlertDialog(
@@ -254,8 +254,6 @@ class FolderManagementScreen extends ConsumerWidget {
           ],
         ),
       ),
-    );
-    // Dispose controller when dialog is dismissed
-    nameController.addListener(() {});
+    ).whenComplete(nameController.dispose);
   }
 }
