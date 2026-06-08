@@ -175,5 +175,44 @@ void main() {
       );
       expect(engine.name, 'gemini+groq');
     });
+
+    test('onAttempt fires once per provider dispatch on failover', () async {
+      final attempts = <ConversationAttempt>[];
+      final primary = _FakeEngine(
+        'gemini',
+        error: ConversationEngineException(
+          ScanFailureReason.quotaExceeded,
+          '429',
+        ),
+      );
+      final secondary = _FakeEngine('groq', reply: 'OK');
+      final engine = FallbackConversationEngine(
+        [primary, secondary],
+        onAttempt: attempts.add,
+      );
+
+      expect(await run(engine), 'OK');
+      // One event per provider actually dispatched (not one per product turn).
+      expect(attempts, hasLength(2));
+      expect(attempts[0].provider, 'gemini');
+      expect(attempts[0].success, isFalse);
+      expect(attempts[0].failureReason, ScanFailureReason.quotaExceeded);
+      expect(attempts[1].provider, 'groq');
+      expect(attempts[1].success, isTrue);
+      expect(attempts[1].outputTokens, greaterThan(0));
+    });
+
+    test('onAttempt records only the successful provider when primary works',
+        () async {
+      final attempts = <ConversationAttempt>[];
+      final engine = FallbackConversationEngine(
+        [_FakeEngine('gemini', reply: 'hi'), _FakeEngine('groq', reply: 'no')],
+        onAttempt: attempts.add,
+      );
+      await run(engine);
+      expect(attempts, hasLength(1));
+      expect(attempts.single.provider, 'gemini');
+      expect(attempts.single.success, isTrue);
+    });
   });
 }

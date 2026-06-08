@@ -78,6 +78,21 @@ final aiEntitlementProvider =
       (ref) => AiEntitlementNotifier(),
     );
 
+/// The entitlement that actually governs quota — the single source of truth for
+/// all metered-AI decisions. **In release builds this is forced to
+/// [AiEntitlement.free]**, because there is no trusted entitlement source yet
+/// and the locally-stored tier must never grant paid quotas (a user could edit
+/// local storage). In debug we honor [aiEntitlementProvider] so the dev plan
+/// switcher can be used for testing.
+///
+/// When server-verified entitlement (RevenueCat / StoreKit / Supabase) is wired
+/// up, replace the release branch with that verified value — do NOT simply read
+/// the local tier here.
+final effectiveAiEntitlementProvider = Provider<AiEntitlement>((ref) {
+  if (kDebugMode) return ref.watch(aiEntitlementProvider);
+  return AiEntitlement.free;
+});
+
 /// Daily cloud-AI usage tracker + quota enforcement (Hive-backed).
 final aiQuotaServiceProvider = Provider<AiQuotaService>((ref) {
   return AiQuotaService();

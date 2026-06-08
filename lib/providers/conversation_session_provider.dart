@@ -23,7 +23,6 @@ import 'package:recall_app/providers/gemini_key_provider.dart';
 import 'package:recall_app/providers/stats_provider.dart';
 import 'package:recall_app/providers/study_set_provider.dart';
 import 'package:recall_app/services/ai/ai_token_estimator.dart';
-import 'package:recall_app/services/ai_analytics_service.dart';
 import 'package:recall_app/services/ai_task.dart';
 import 'package:recall_app/services/gemini_service.dart';
 import 'package:recall_app/services/outcome_adapter.dart';
@@ -553,31 +552,21 @@ class ConversationSessionNotifier
       // the engine may call >1 provider but this counts as one product unit (see
       // docs §2.6 — provider-attempt accounting is a known follow-up).
       final quota = ref.read(aiQuotaServiceProvider);
-      final entitlement = ref.read(aiEntitlementProvider);
+      final entitlement = ref.read(effectiveAiEntitlementProvider);
       if (!await quota.tryConsume(entitlement, AiTaskType.conversationTurn)) {
         _handleEngineError(ScanFailureReason.quotaExceeded, text);
         return;
       }
-      final startedAt = DateTime.now().toUtc();
       final responseText = await _engine!.generateTurn(
         systemPrompt: systemPrompt,
         history: history,
         userMessage: userMessage,
       );
-      final inTokens = AiTokenEstimator.estimateAll([systemPrompt, userMessage]);
-      final outTokens = AiTokenEstimator.estimate(responseText);
-      _estimatedTotalTokens += inTokens + outTokens;
-      // Record the turn in the AI usage ledger (cost telemetry). NOTE: the
-      // engine may have failed over across providers; this logs one product-task
-      // event for the provider chain (see docs §2.6 provider-attempt follow-up).
-      unawaited(AiAnalyticsService().logEvent(
-        taskType: AiTaskType.conversationTurn,
-        provider: _engine!.name,
-        success: true,
-        elapsed: DateTime.now().toUtc().difference(startedAt),
-        inputTokens: inTokens,
-        outputTokens: outTokens,
-      ));
+      // Session token budget (per-provider usage events are now recorded inside
+      // the engine via onAttempt — see conversationEngineProvider).
+      _estimatedTotalTokens +=
+          AiTokenEstimator.estimateAll([systemPrompt, userMessage]) +
+              AiTokenEstimator.estimate(responseText);
       await _applyAiResponse(
         responseText: responseText,
         text: text,
@@ -852,7 +841,7 @@ class ConversationSessionNotifier
     // Cloud scoring is metered (§2.6); atomically check + consume one unit, and
     // fall back to offline scoring once the daily speaking-score quota is spent.
     final quota = ref.read(aiQuotaServiceProvider);
-    final entitlement = ref.read(aiEntitlementProvider);
+    final entitlement = ref.read(effectiveAiEntitlementProvider);
     if (!await quota.tryConsume(entitlement, AiTaskType.speakingScore)) {
       _evaluateTurnOffline(turnIndex, userResponse);
       return;

@@ -219,7 +219,7 @@ final smartDistractorsProvider = FutureProvider.autoDispose
     .family<List<String>?, SmartDistractorRequest>((ref, req) async {
       const task = AiTaskType.smartDistractors;
       final route = await ref.watch(aiRouteProvider(task).future);
-      final entitlement = ref.watch(aiEntitlementProvider);
+      final entitlement = ref.watch(effectiveAiEntitlementProvider);
       final quota = ref.watch(aiQuotaServiceProvider);
 
       final gw = AiGateway.decide(

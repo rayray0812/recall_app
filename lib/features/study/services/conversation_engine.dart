@@ -1,3 +1,4 @@
+import 'package:recall_app/services/ai/ai_token_estimator.dart';
 import 'package:recall_app/services/ai_error.dart';
 
 /// One message in a conversation history (role + text). Provider-agnostic so the
@@ -39,14 +40,44 @@ abstract class ConversationEngine {
   });
 }
 
+/// One provider dispatch within [FallbackConversationEngine], reported to
+/// [FallbackConversationEngine.onAttempt] so the caller can record accurate
+/// per-provider cost telemetry (a single product turn may dispatch >1 provider
+/// on failover — see docs §2.6). Token counts are rough estimates.
+class ConversationAttempt {
+  final String provider;
+  final bool success;
+  final ScanFailureReason? failureReason;
+  final Duration elapsed;
+  final int inputTokens;
+  final int outputTokens;
+
+  const ConversationAttempt({
+    required this.provider,
+    required this.success,
+    required this.elapsed,
+    required this.inputTokens,
+    this.failureReason,
+    this.outputTokens = 0,
+  });
+}
+
+typedef ConversationAttemptCallback = void Function(ConversationAttempt attempt);
+
 /// Tries each engine in order; on any failure it falls through to the next, so a
 /// rate-limited or erroring primary provider transparently hands off to the
 /// secondary. This replaces the old "drop to canned local coach" path as the
 /// first line of defence. Throws the last error only when *all* engines fail.
+///
+/// [onAttempt] fires once per actual provider dispatch (success or failure), so
+/// callers can log a provider-level usage event for *each* call — not just one
+/// per product turn — keeping cost accounting honest under failover. The engine
+/// itself stays free of any analytics/storage dependency.
 class FallbackConversationEngine implements ConversationEngine {
   final List<ConversationEngine> engines;
+  final ConversationAttemptCallback? onAttempt;
 
-  FallbackConversationEngine(this.engines)
+  FallbackConversationEngine(this.engines, {this.onAttempt})
       : assert(engines.isNotEmpty, 'need at least one engine');
 
   @override
@@ -58,16 +89,37 @@ class FallbackConversationEngine implements ConversationEngine {
     required List<ConversationMessage> history,
     String userMessage = '',
   }) async {
+    final inputTokens = AiTokenEstimator.estimateAll([
+      systemPrompt,
+      for (final m in history) m.text,
+      userMessage,
+    ]);
     ConversationEngineException? last;
     for (final engine in engines) {
+      final startedAt = DateTime.now().toUtc();
       try {
-        return await engine.generateTurn(
+        final text = await engine.generateTurn(
           systemPrompt: systemPrompt,
           history: history,
           userMessage: userMessage,
         );
+        onAttempt?.call(ConversationAttempt(
+          provider: engine.name,
+          success: true,
+          elapsed: DateTime.now().toUtc().difference(startedAt),
+          inputTokens: inputTokens,
+          outputTokens: AiTokenEstimator.estimate(text),
+        ));
+        return text;
       } on ConversationEngineException catch (e) {
         last = e;
+        onAttempt?.call(ConversationAttempt(
+          provider: engine.name,
+          success: false,
+          failureReason: e.reason,
+          elapsed: DateTime.now().toUtc().difference(startedAt),
+          inputTokens: inputTokens,
+        ));
         // try the next provider
       }
     }

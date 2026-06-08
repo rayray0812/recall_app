@@ -252,7 +252,7 @@ class _PhotoImportScreenState extends ConsumerState<PhotoImportScreen>
     final isCloud = provider != AiProvider.gemma;
     if (isCloud) {
       final quota = ref.read(aiQuotaServiceProvider);
-      final entitlement = ref.read(aiEntitlementProvider);
+      final entitlement = ref.read(effectiveAiEntitlementProvider);
       if (!await quota.tryConsume(entitlement, AiTaskType.photoImport)) {
         analytics.logEvent(
           taskType: task.type,

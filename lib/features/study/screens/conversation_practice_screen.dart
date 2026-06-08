@@ -712,7 +712,7 @@ class _ConversationPracticeScreenState
   /// keeps working via the offline local coach; this just explains why replies
   /// changed and nudges an upgrade (§2.6).
   Widget _buildQuotaBanner(ThemeData theme) {
-    final entitlement = ref.watch(aiEntitlementProvider);
+    final entitlement = ref.watch(effectiveAiEntitlementProvider);
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
       decoration: BoxDecoration(
