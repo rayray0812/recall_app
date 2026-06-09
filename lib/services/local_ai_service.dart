@@ -176,11 +176,11 @@ class LocalAiService {
         temperature: 0.8,
         topK: 50,
       );
-      final list = parseDistractorLines(
-        raw,
-        exclude: correctOption,
-        max: count,
-      );
+      final list =
+          parseDistractorLines(raw, exclude: correctOption, max: count * 3)
+              .where((d) => isDistractorShapeValid(d, reversed: reversed))
+              .take(count)
+              .toList();
       analytics.logEvent(
         taskType: task.type,
         provider: task.provider,
@@ -197,7 +197,9 @@ class LocalAiService {
         elapsed: task.elapsed,
         failureReason: reason,
       );
-      debugPrint('LocalAiService.generateDistractors failed: $e');
+      if (kDebugMode) {
+        debugPrint('LocalAiService.generateDistractors failed: $e');
+      }
       return null;
     }
   }
@@ -257,18 +259,9 @@ class LocalAiService {
     required String definition,
   }) {
     return '''/no_think
-你是英語學習助教。用單字 "$term" 造一個自然、簡單的例句，適合高中生理解。
-
-單字：$term
-意思：$definition
-
-要求：
-- 只輸出一句例句，句子裡必須包含 "$term"
-- 句子簡短、口語、貼近生活
-- 不要附中文翻譯，也不要解釋
-- 不要輸出 <think>、推理過程、標籤或多餘文字
-
-例句：''';
+Word: "$term"
+Meaning: "$definition"
+Write one short natural English sentence using "$term". No Chinese, labels, translation, or explanation.''';
   }
 
   static String buildDistractorsPrompt({
@@ -280,28 +273,35 @@ class LocalAiService {
   }) {
     if (reversed) {
       // Question shows the definition, asks for the term → distractors are
-      // other plausible words (similar spelling or meaning), not the answer.
+      // look-alike words, not synonyms of the answer.
       return '''你是出題老師。學生要從選項中選出對應「$definition」的正確單字（正解是 "$correctOption"）。
-請設計 $count 個「看起來很像、但其實錯誤」的單字當干擾選項。
+請設計 $count 個「長得像、拼字相近、字根/字尾容易搞混，但意思不同」的英文單字當干擾選項。
 
 要求：
 - 每行一個單字，總共 $count 行
-- 與 "$correctOption" 同類型、長度相近，容易混淆（例如拼字相近或意思相關）
+- 優先選拼字外觀相近、字首/字尾/音節相似的字
+- 不要產生 "$correctOption" 的同義詞、近義詞或解釋
 - 不可以是正解 "$correctOption" 本身，也不要重複
 - 只輸出單字，不要編號、不要解釋
 
 干擾選項：''';
     }
-    // Question shows the term, asks for the definition → distractors are wrong
-    // definitions that look reasonable for this kind of word.
-    return '''你是出題老師。學生要從選項中選出單字 "$term" 的正確中文意思（正解是「$correctOption」）。
-請設計 $count 個「看起來合理、但其實錯誤」的中文意思當干擾選項。
+    // Question shows the term, asks for the definition → choose look-alike
+    // English decoy words first, then output only their Chinese meanings.
+    return '''你是台灣高中英文測驗出題老師。題目顯示英文單字 "$term"，學生要選正確的繁體中文意思。
+正解：「$correctOption」
+補充定義：$definition
 
-要求：
-- 每行一個意思，總共 $count 行
-- 風格、長度與「$correctOption」相近，似是而非、容易誤選
-- 不可以等於正解「$correctOption」，也不要重複
-- 只輸出意思本身，不要編號、不要解釋
+請先想出 $count 個和 "$term" 長得像、拼字相近、字根/字尾容易搞混，但意思不同的英文錯字。
+然後只輸出這些錯字對應的「繁體中文意思」作為干擾選項。
+
+嚴格要求：
+- 每行一個繁體中文意思，總共 $count 行
+- 必須是中文釋義，不可以輸出英文單字、英文近義詞、例句或解釋
+- 來源錯字要和 "$term" 外觀相似，不要只找意思相近的字
+- 意思要明確錯誤，不能是「$correctOption」的同義改寫、上位詞、近義詞或通用解釋
+- 避免太通用的答案，例如：好的、壞的、重要的、東西、事情
+- 不要重複，不要編號，不要解釋
 
 干擾選項：''';
   }
@@ -329,6 +329,19 @@ class LocalAiService {
     }
 
     return text;
+  }
+
+  static bool isLikelyEnglishSentence(String text) {
+    final trimmed = text.trim();
+    if (trimmed.isEmpty) return false;
+    if (RegExp(r'[\u3400-\u9fff]').hasMatch(trimmed)) return false;
+
+    final latinChars = RegExp(r'[A-Za-z]').allMatches(trimmed).length;
+    if (latinChars < 3) return false;
+
+    final letters = RegExp(r'[A-Za-z\u3400-\u9fff]').allMatches(trimmed).length;
+    if (letters == 0) return false;
+    return latinChars / letters >= 0.85;
   }
 
   /// Trim model output to the first 1-2 sentences (for L3).
@@ -432,6 +445,17 @@ class LocalAiService {
       if (out.length >= max) break;
     }
     return out;
+  }
+
+  static bool isDistractorShapeValid(String value, {required bool reversed}) {
+    final text = value.trim();
+    if (text.isEmpty) return false;
+    final hasCjk = RegExp(r'[\u3400-\u9fff]').hasMatch(text);
+    final hasLatin = RegExp(r'[A-Za-z]').hasMatch(text);
+
+    // term → definition: choices must be Chinese meanings, not English
+    // synonyms. definition → term: choices must be English words/phrases.
+    return reversed ? hasLatin && !hasCjk : hasCjk && !hasLatin;
   }
 
   // —— Internal: shared analytics + error handling wrapper ——

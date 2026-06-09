@@ -74,10 +74,7 @@ void main() {
           },
         ],
       });
-      expect(
-        GroqCompletionService.parseContent(raw),
-        '永久的\n快速的\n巨大的',
-      );
+      expect(GroqCompletionService.parseContent(raw), '永久的\n快速的\n巨大的');
     });
 
     test('returns empty string on malformed body', () {
@@ -98,22 +95,52 @@ void main() {
       expect(p, contains('ephemeral'));
       expect(p, contains('短暫的'));
       expect(p, contains('3'));
-      // Forward questions ask for a Chinese meaning.
-      expect(p, contains('意思'));
+      // Forward questions ask for Chinese meanings of look-alike decoy words.
+      expect(p, contains('繁體中文意思'));
+      expect(p, contains('不可以輸出英文單字'));
+      expect(p, contains('外觀相似'));
+      expect(p, contains('不要只找意思相近'));
     });
 
-    test('reversed (definition→term) asks for similar words, excludes answer',
-        () {
-      final p = LocalAiService.buildDistractorsPrompt(
-        term: 'ephemeral',
-        definition: '短暫的',
-        correctOption: 'ephemeral',
-        reversed: true,
-        count: 3,
+    test(
+      'reversed (definition→term) asks for look-alike words, excludes answer',
+      () {
+        final p = LocalAiService.buildDistractorsPrompt(
+          term: 'ephemeral',
+          definition: '短暫的',
+          correctOption: 'ephemeral',
+          reversed: true,
+          count: 3,
+        );
+        expect(p, contains('短暫的'));
+        expect(p, contains('ephemeral'));
+        expect(p, contains('拼字相近'));
+        expect(p, contains('不要產生 "ephemeral" 的同義詞'));
+      },
+    );
+  });
+
+  group('isDistractorShapeValid', () {
+    test('forward questions only accept Chinese meanings', () {
+      expect(
+        LocalAiService.isDistractorShapeValid('永久的', reversed: false),
+        isTrue,
       );
-      expect(p, contains('短暫的'));
-      expect(p, contains('ephemeral'));
-      expect(p, contains('單字'));
+      expect(
+        LocalAiService.isDistractorShapeValid('permanent', reversed: false),
+        isFalse,
+      );
+    });
+
+    test('reversed questions only accept English words', () {
+      expect(
+        LocalAiService.isDistractorShapeValid('permanent', reversed: true),
+        isTrue,
+      );
+      expect(
+        LocalAiService.isDistractorShapeValid('永久的', reversed: true),
+        isFalse,
+      );
     });
   });
 
@@ -126,15 +153,20 @@ void main() {
 
     test('drops the line equal to the correct answer (case-insensitive)', () {
       const raw = 'Permanent\nPERMANENT\nfast\nhuge';
-      final out =
-          LocalAiService.parseDistractorLines(raw, exclude: 'permanent');
+      final out = LocalAiService.parseDistractorLines(
+        raw,
+        exclude: 'permanent',
+      );
       expect(out, ['fast', 'huge']);
     });
 
     test('dedups case-insensitively and caps at max', () {
       const raw = '永久的\n永久的\n快速的\n巨大的\n微小的';
-      final out =
-          LocalAiService.parseDistractorLines(raw, exclude: '短暫的', max: 3);
+      final out = LocalAiService.parseDistractorLines(
+        raw,
+        exclude: '短暫的',
+        max: 3,
+      );
       expect(out, ['永久的', '快速的', '巨大的']);
     });
 

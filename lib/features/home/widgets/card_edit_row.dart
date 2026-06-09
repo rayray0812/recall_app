@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:recall_app/core/l10n/app_localizations.dart';
 import 'package:recall_app/core/widgets/adaptive_glass_card.dart';
+import 'package:recall_app/features/home/widgets/ai_autofill_button.dart';
 import 'package:recall_app/features/home/widgets/ai_example_button.dart';
 import 'package:recall_app/features/home/widgets/tag_chips.dart';
 
@@ -163,6 +164,18 @@ class CardEditRow extends StatelessWidget {
                 border: OutlineInputBorder(),
               ),
               textInputAction: TextInputAction.next,
+            ),
+          ),
+          // AI smart-fill: type the term, tap to auto-fill the rest. Hides
+          // itself when no AI path is available (manual entry stays the
+          // baseline for guests / free users).
+          Align(
+            alignment: Alignment.centerLeft,
+            child: AiAutofillButton(
+              termController: termController,
+              definitionController: definitionController,
+              exampleSentenceController: exampleSentenceController,
+              onAddTag: onAddTag,
             ),
           ),
           const SizedBox(height: 14),

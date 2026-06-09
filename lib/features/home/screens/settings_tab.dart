@@ -340,9 +340,10 @@ class _SettingsTabState extends ConsumerState<SettingsTab> {
                 leading: const Icon(CupertinoIcons.sparkles),
                 title: serifSettingTitle(context, l10n.aiSettings),
                 subtitle: Text(switch (ref.watch(aiProviderProvider)) {
-                  AiProvider.groq => 'Groq (Llama 4 Scout)',
-                  AiProvider.gemma => 'Gemma (on-device)',
-                  AiProvider.gemini => l10n.aiSettingsSubtitle,
+                  AiProvider.appRemote => '使用 Grasp 遠端 AI',
+                  AiProvider.gemma => '本機 AI',
+                  AiProvider.gemini => '自己的 Gemini API',
+                  AiProvider.groq => '自己的 Groq API',
                 }),
                 trailing: const Icon(CupertinoIcons.chevron_right),
                 onTap: () => _showGeminiKeyDialog(context: context, ref: ref),
@@ -536,39 +537,12 @@ class _SettingsTabState extends ConsumerState<SettingsTab> {
                       children: [
                         // —— AI 服務 ——
                         Text(
-                          l10n.aiProvider,
+                          'AI 模式（擇一）',
                           style: Theme.of(context).textTheme.labelMedium,
-                        ),
-                        const SizedBox(height: 8),
-                        SegmentedButton<AiProvider>(
-                          segments: const [
-                            ButtonSegment<AiProvider>(
-                              value: AiProvider.gemma,
-                              label: Text('本機'),
-                              icon: Icon(Icons.memory_rounded, size: 16),
-                            ),
-                            ButtonSegment<AiProvider>(
-                              value: AiProvider.gemini,
-                              label: Text('Gemini'),
-                              icon: Icon(Icons.auto_awesome, size: 16),
-                            ),
-                            ButtonSegment<AiProvider>(
-                              value: AiProvider.groq,
-                              label: Text('Groq'),
-                              icon: Icon(Icons.bolt, size: 16),
-                            ),
-                          ],
-                          selected: {selectedProvider},
-                          onSelectionChanged: (s) =>
-                              setDialogState(() => selectedProvider = s.first),
                         ),
                         const SizedBox(height: 6),
                         Text(
-                          switch (selectedProvider) {
-                            AiProvider.gemma => '裝置本機 AI — 免費、離線、隱私（需先下載模型）',
-                            AiProvider.gemini => '雲端 AI — 速度快、品質好（需 API 金鑰）',
-                            AiProvider.groq => '免費雲端 AI（需 API 金鑰）',
-                          },
+                          '選一種 AI 來源。App 不會同時混用本機、自己的 API key、和 Grasp 遠端服務。',
                           style: Theme.of(context).textTheme.bodySmall
                               ?.copyWith(
                                 color: Theme.of(
@@ -576,9 +550,80 @@ class _SettingsTabState extends ConsumerState<SettingsTab> {
                                 ).colorScheme.onSurfaceVariant,
                               ),
                         ),
+                        const SizedBox(height: 12),
+                        RadioListTile<AiProvider>(
+                          contentPadding: EdgeInsets.zero,
+                          secondary: const Icon(Icons.cloud_done_rounded),
+                          title: const Text('使用 Grasp 遠端 AI'),
+                          subtitle: const Text(
+                            '推薦。登入後使用 App 內建額度；你的裝置不會看到服務端 token。',
+                          ),
+                          value: AiProvider.appRemote,
+                          groupValue: selectedProvider,
+                          onChanged: (v) =>
+                              setDialogState(() => selectedProvider = v!),
+                        ),
+                        RadioListTile<AiProvider>(
+                          contentPadding: EdgeInsets.zero,
+                          secondary: const Icon(Icons.memory_rounded),
+                          title: const Text('只用本機 AI'),
+                          subtitle: const Text('免費、離線、隱私；需要先下載模型，速度與品質看手機。'),
+                          value: AiProvider.gemma,
+                          groupValue: selectedProvider,
+                          onChanged: (v) =>
+                              setDialogState(() => selectedProvider = v!),
+                        ),
+                        RadioListTile<AiProvider>(
+                          contentPadding: EdgeInsets.zero,
+                          secondary: const Icon(Icons.auto_awesome),
+                          title: const Text('使用自己的 Gemini API Key'),
+                          subtitle: const Text('請自行承擔 Google API 用量與費用。'),
+                          value: AiProvider.gemini,
+                          groupValue: selectedProvider,
+                          onChanged: (v) =>
+                              setDialogState(() => selectedProvider = v!),
+                        ),
+                        RadioListTile<AiProvider>(
+                          contentPadding: EdgeInsets.zero,
+                          secondary: const Icon(Icons.bolt_rounded),
+                          title: const Text('使用自己的 Groq API Key'),
+                          subtitle: const Text('適合低成本高速文字生成；請自行管理 Groq 額度。'),
+                          value: AiProvider.groq,
+                          groupValue: selectedProvider,
+                          onChanged: (v) =>
+                              setDialogState(() => selectedProvider = v!),
+                        ),
                         const SizedBox(height: 16),
 
                         // —— 服務專屬設定 ——
+                        if (selectedProvider == AiProvider.appRemote)
+                          Card(
+                            margin: EdgeInsets.zero,
+                            child: Padding(
+                              padding: const EdgeInsets.all(12),
+                              child: Row(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Icon(
+                                    CupertinoIcons.lock_shield,
+                                    size: 20,
+                                    color: Theme.of(context)
+                                        .colorScheme
+                                        .primary,
+                                  ),
+                                  const SizedBox(width: 10),
+                                  Expanded(
+                                    child: Text(
+                                      'Grasp 遠端 AI 會透過 Supabase Edge Function 執行。服務端 token 只存在 Supabase secrets，App 內不會儲存或傳回你的 owner token。',
+                                      style: Theme.of(context)
+                                          .textTheme
+                                          .bodySmall,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
                         if (selectedProvider == AiProvider.gemma)
                           const ModelManagerCard(),
                         if (selectedProvider == AiProvider.gemini)
@@ -601,23 +646,6 @@ class _SettingsTabState extends ConsumerState<SettingsTab> {
                               isDense: true,
                             ),
                           ),
-
-                        const Divider(height: 28),
-
-                        // —— 隱私模式 ——
-                        SwitchListTile(
-                          contentPadding: EdgeInsets.zero,
-                          secondary: const Icon(Icons.shield_outlined),
-                          title: const Text('隱私模式'),
-                          subtitle: const Text('只用裝置本機 AI，資料不傳雲端'),
-                          value: ref.read(aiPrivacyModeProvider),
-                          onChanged: (v) async {
-                            await ref
-                                .read(aiPrivacyModeProvider.notifier)
-                                .setEnabled(v);
-                            setDialogState(() {});
-                          },
-                        ),
 
                         const Divider(height: 28),
 
@@ -798,6 +826,9 @@ class _SettingsTabState extends ConsumerState<SettingsTab> {
                     ref
                         .read(aiProviderProvider.notifier)
                         .setProvider(selectedProvider);
+                    ref
+                        .read(aiPrivacyModeProvider.notifier)
+                        .setEnabled(selectedProvider == AiProvider.gemma);
                     if (selectedProvider == AiProvider.gemini) {
                       ref
                           .read(geminiKeyProvider.notifier)

@@ -7,12 +7,12 @@ import 'package:recall_app/services/ai_error.dart';
 /// Stateless: every call rebuilds the full history as [Content] and calls
 /// `generateContent` (rather than a stateful `ChatSession`) so it shares the
 /// same contract as the Groq engine and can be swapped freely by
-/// [FallbackConversationEngine]. Uses `gemini-2.0-flash` (not flash-lite) for
+/// [FallbackConversationEngine]. Uses `gemini-2.5-flash` (not flash-lite) for
 /// noticeably more natural dialogue.
 class GeminiConversationEngine implements ConversationEngine {
   GeminiConversationEngine({required this.apiKey, this.model = defaultModel});
 
-  static const String defaultModel = 'gemini-2.0-flash';
+  static const String defaultModel = 'gemini-2.5-flash';
 
   final String apiKey;
   final String model;

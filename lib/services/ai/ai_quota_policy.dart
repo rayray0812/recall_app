@@ -25,7 +25,9 @@ abstract final class AiQuotaPolicy {
       AiTaskType.conversationTurn ||
       AiTaskType.smartDistractors ||
       AiTaskType.photoImport ||
-      AiTaskType.speakingScore => true,
+      AiTaskType.speakingScore ||
+      // cardLookup runs free on-device; only its cloud fallback is metered.
+      AiTaskType.cardLookup => true,
       AiTaskType.reviewHint ||
       AiTaskType.mnemonic ||
       AiTaskType.confusionDiagnosis => false,
@@ -43,14 +45,19 @@ abstract final class AiQuotaPolicy {
         AiTaskType.smartDistractors => 500,
         AiTaskType.photoImport => 100,
         AiTaskType.speakingScore => 200,
+        AiTaskType.cardLookup => 300,
         _ => unlimited,
       },
+      // Free tier gets a daily allowance of cloud card-fill. To make this a
+      // paid-only feature later, set cardLookup to 0 here (and mirror it in the
+      // edge function's dailyLimit) — that single change gates it.
       AiEntitlement.free => switch (type) {
         AiTaskType.conversationTurn => 30,
         AiTaskType.exampleSentence => 30,
         AiTaskType.smartDistractors => 60,
         AiTaskType.photoImport => 10,
         AiTaskType.speakingScore => 20,
+        AiTaskType.cardLookup => 20,
         _ => unlimited,
       },
     };

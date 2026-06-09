@@ -40,6 +40,16 @@ void main() {
     expect(svc.usageToday(AiTaskType.photoImport), 1);
   });
 
+  test('recordServerUsage mirrors app-remote proxy usage for display',
+      () async {
+    final svc = AiQuotaService();
+    expect(svc.usageToday(AiTaskType.smartDistractors), 0);
+
+    await svc.recordServerUsage(AiTaskType.smartDistractors);
+
+    expect(svc.usageToday(AiTaskType.smartDistractors), 1);
+  });
+
   test('tryConsume never consumes (and always allows) unmetered local tasks',
       () async {
     final svc = AiQuotaService();

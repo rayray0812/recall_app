@@ -236,36 +236,29 @@ final localInferenceAllowedProvider = FutureProvider<bool>((ref) async {
   }
 });
 
-/// Whether a *BYO* cloud key is configured (provider not gemma + a key present).
-///
-/// Choosing the on-device ("本機"/gemma) provider means cloud is NOT used for
-/// task routing — so selecting "本機" genuinely keeps tasks on-device, instead
-/// of that being controlled only by the separate privacy-mode toggle.
-///
-/// This intentionally does NOT account for the owner-funded server proxy, which
-/// is only available for some tasks — use [cloudConfiguredForTaskProvider] for
-/// routing decisions.
+/// Whether the currently selected BYO provider has its required key.
 final cloudConfiguredProvider = Provider<bool>((ref) {
-  if (ref.watch(aiProviderProvider) == AiProvider.gemma) return false;
-  final geminiKey = ref.watch(geminiKeyProvider);
-  final groqKey = ref.watch(groqKeyProvider);
-  return geminiKey.trim().isNotEmpty || groqKey.trim().isNotEmpty;
+  return switch (ref.watch(aiProviderProvider)) {
+    AiProvider.gemini => ref.watch(geminiKeyProvider).trim().isNotEmpty,
+    AiProvider.groq => ref.watch(groqKeyProvider).trim().isNotEmpty,
+    AiProvider.appRemote || AiProvider.gemma => false,
+  };
 });
 
-/// Whether [type] has a usable cloud path: either a BYO key, or — for tasks the
-/// client actually routes through the Grasp proxy ([proxyBackedTasks]) — a
-/// signed-in user (owner-funded). A signed-in keyless user is NOT considered
-/// cloud-capable for tasks without a proxy call site (conversation/photo import/
-/// speaking score), so those correctly require a key instead of silently
-/// "configuring" cloud and then degrading.
+/// Whether [type] has a usable cloud path under the selected single AI mode.
 final cloudConfiguredForTaskProvider = Provider.family<bool, AiTaskType>((
   ref,
   type,
 ) {
-  if (ref.watch(aiProviderProvider) == AiProvider.gemma) return false;
-  if (ref.watch(cloudConfiguredProvider)) return true;
-  final user = ref.watch(currentUserProvider);
-  return user != null && proxyBackedTasks.contains(type);
+  return switch (ref.watch(aiProviderProvider)) {
+    AiProvider.appRemote =>
+      ref.watch(currentUserProvider) != null && proxyBackedTasks.contains(type),
+    AiProvider.gemini =>
+      type != AiTaskType.smartDistractors &&
+      ref.watch(geminiKeyProvider).trim().isNotEmpty,
+    AiProvider.groq => ref.watch(groqKeyProvider).trim().isNotEmpty,
+    AiProvider.gemma => false,
+  };
 });
 
 /// The routing decision for a given AI task type, combining all live inputs
@@ -275,7 +268,10 @@ final aiRouteProvider = FutureProvider.family<AiRouteDecision, AiTaskType>((
   type,
 ) async {
   final capability = await ref.watch(aiCapabilityProvider.future);
-  final localReady = await ref.watch(localModelReadyProvider.future);
+  final selectedProvider = ref.watch(aiProviderProvider);
+  final localReady = selectedProvider == AiProvider.gemma
+      ? await ref.watch(localModelReadyProvider.future)
+      : false;
   final online = ref.watch(aiOnlineProvider).valueOrNull ?? true;
   final privacyMode = ref.watch(aiPrivacyModeProvider);
   final cloudConfigured = ref.watch(cloudConfiguredForTaskProvider(type));

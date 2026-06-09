@@ -292,18 +292,27 @@ Future<List<String>?> _generateProxyDistractors(
             const AiProxyMessage(
               role: AiProxyRole.system,
               content:
-                  'You generate concise multiple-choice distractors for a vocabulary quiz. Return only one option per line.',
+                  'Generate look-alike vocabulary distractors, not synonyms. Return only one option per line.',
             ),
             AiProxyMessage(role: AiProxyRole.user, content: prompt),
           ],
           temperature: 0.8,
           maxTokens: 180,
         );
-    final list = LocalAiService.parseDistractorLines(
-      response.text,
-      exclude: req.correctOption,
-      max: req.count,
-    );
+    final list =
+        LocalAiService.parseDistractorLines(
+              response.text,
+              exclude: req.correctOption,
+              max: req.count * 3,
+            )
+            .where(
+              (d) => LocalAiService.isDistractorShapeValid(
+                d,
+                reversed: req.reversed,
+              ),
+            )
+            .take(req.count)
+            .toList();
     return list.length >= req.count ? list : null;
   } catch (_) {
     return null;

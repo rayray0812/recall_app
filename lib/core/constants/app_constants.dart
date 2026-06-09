@@ -24,6 +24,8 @@ class AppConstants {
   static const String settingAiPrivacyModeKey = 'ai_privacy_mode';
   static const String settingAiEntitlementKey = 'ai_entitlement';
   static const String settingAiQuotaKey = 'ai_quota';
+  static const String settingSmartDistractorCacheKey =
+      'smart_distractor_cache';
 
   static const int maxCardsPerSet = 2000;
   static const int defaultNewCardsPerDay = 20;

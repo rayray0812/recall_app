@@ -1,5 +1,7 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:recall_app/providers/ai_provider_provider.dart';
 import 'package:recall_app/providers/ai_runtime_provider.dart';
 import 'package:recall_app/providers/auth_provider.dart';
 import 'package:recall_app/providers/gemini_key_provider.dart';
@@ -8,15 +10,15 @@ import 'package:recall_app/services/ai/ai_proxy_client.dart';
 import 'package:recall_app/services/ai/ai_router.dart';
 import 'package:recall_app/services/ai_task.dart';
 import 'package:recall_app/services/gemini_service.dart';
+import 'package:recall_app/services/groq_completion_service.dart';
 import 'package:recall_app/services/local_ai_service.dart';
 
 /// "✨ AI 例句" button for the card editor: generates one example sentence and
 /// fills [exampleSentenceController].
 ///
-/// It tries the local model first, then falls back to the server-side AI proxy
-/// for signed-in users or the user's own Gemini key. This keeps the editor
-/// usable when tiny local models return reasoning text instead of a clean
-/// sentence.
+/// It follows the single AI mode selected in settings: Grasp remote, local
+/// model, user's Gemini key, or user's Groq key. Modes are intentionally not
+/// mixed so users can reason about privacy and cost.
 class AiExampleButton extends ConsumerStatefulWidget {
   const AiExampleButton({
     super.key,
@@ -44,37 +46,75 @@ class _AiExampleButtonState extends ConsumerState<AiExampleButton> {
     }
     setState(() => _loading = true);
     try {
+      if (ref.read(aiProviderProvider) == AiProvider.appRemote &&
+          ref.read(currentUserProvider) == null) {
+        _toast('請先登入，才能使用 Grasp 遠端 AI');
+        return;
+      }
       final decision = await ref.read(
         aiRouteProvider(AiTaskType.exampleSentence).future,
       );
       final definition = widget.definitionController.text.trim();
-      var sentence = await _generateLocal(
-        decision: decision,
-        term: term,
-        definition: definition,
-      );
-      if (sentence != null && sentence.isEmpty) sentence = null;
-      sentence ??= await _generateCloudFallback(
-        currentDecision: decision,
-        term: term,
-        definition: definition,
-      );
-      sentence ??= await _generateCloud(
+      final sentence = await _generateForSelectedMode(
         decision: decision,
         term: term,
         definition: definition,
       );
       if (!mounted) return;
       if (sentence == null || sentence.isEmpty) {
-        _toast('產生失敗，請確認已登入或雲端 AI 已設定');
+        _toast('AI 沒有回傳可用例句，請再試一次');
         return;
       }
       widget.exampleSentenceController.text = sentence;
-    } catch (_) {
+    } on ScanException catch (e) {
+      debugPrint('AiExampleButton.generate failed: $e');
+      _toast(_messageForScanError(e));
+    } catch (e) {
+      debugPrint('AiExampleButton.generate failed: $e');
       _toast('產生失敗，請再試一次');
     } finally {
       if (mounted) setState(() => _loading = false);
     }
+  }
+
+  String _messageForScanError(ScanException error) {
+    return switch (error.reason) {
+      ScanFailureReason.authError => '登入已失效，請重新登入後再試',
+      ScanFailureReason.quotaExceeded => '今日 AI 額度已用完',
+      ScanFailureReason.networkError => '網路連線失敗，請確認手機可連到 Supabase',
+      ScanFailureReason.invalidRequest => 'AI 請求格式錯誤，請稍後再試',
+      ScanFailureReason.serverError => '遠端 AI 服務暫時失敗，請稍後再試',
+      ScanFailureReason.parseError => 'AI 回覆格式不正確，請再試一次',
+      ScanFailureReason.timeout => 'AI 產生逾時，請再試一次',
+      ScanFailureReason.unknown => '產生失敗，請再試一次',
+    };
+  }
+
+  Future<String?> _generateForSelectedMode({
+    required AiRouteDecision decision,
+    required String term,
+    required String definition,
+  }) {
+    return switch (ref.read(aiProviderProvider)) {
+      AiProvider.appRemote => _generateCloud(
+        decision: decision,
+        term: term,
+        definition: definition,
+      ),
+      AiProvider.gemma => _generateLocal(
+        decision: decision,
+        term: term,
+        definition: definition,
+      ),
+      AiProvider.gemini => _generateWithUserGeminiKey(
+        term: term,
+        definition: definition,
+      ),
+      AiProvider.groq => _generateWithUserGroqKey(
+        term: term,
+        definition: definition,
+      ),
+    };
   }
 
   Future<String?> _generateLocal({
@@ -90,35 +130,10 @@ class _AiExampleButtonState extends ConsumerState<AiExampleButton> {
         term: term,
         definition: definition,
       );
-    } catch (_) {
+    } catch (e) {
+      debugPrint('AiExampleButton local example failed: $e');
       return null;
     }
-  }
-
-  Future<String?> _generateCloudFallback({
-    required AiRouteDecision currentDecision,
-    required String term,
-    required String definition,
-  }) async {
-    if (currentDecision.isCloud ||
-        currentDecision.target == AiRouteTarget.unavailable) {
-      return null;
-    }
-    if (ref.read(aiPrivacyModeProvider)) return null;
-    if (!(ref.read(aiOnlineProvider).valueOrNull ?? true)) return null;
-    if (!ref.read(
-      cloudConfiguredForTaskProvider(AiTaskType.exampleSentence),
-    )) {
-      return null;
-    }
-    return _generateCloud(
-      decision: const AiRouteDecision(
-        AiRouteTarget.cloud,
-        'exampleSentence local failed → cloud fallback',
-      ),
-      term: term,
-      definition: definition,
-    );
   }
 
   Future<String?> _generateCloud({
@@ -128,9 +143,7 @@ class _AiExampleButtonState extends ConsumerState<AiExampleButton> {
   }) async {
     if (!decision.isCloud) return null;
     final user = ref.read(currentUserProvider);
-    if (user == null) {
-      return _generateWithUserGeminiKey(term: term, definition: definition);
-    }
+    if (user == null) return null;
 
     const task = AiTaskType.exampleSentence;
     final entitlement = ref.read(effectiveAiEntitlementProvider);
@@ -150,23 +163,22 @@ class _AiExampleButtonState extends ConsumerState<AiExampleButton> {
       term: term,
       definition: definition,
     );
-    final response = await ref.read(aiProxyClientProvider).complete(
-      taskType: task,
-      messages: [
-        const AiProxyMessage(
-          role: AiProxyRole.system,
-          content:
-              'Generate exactly one natural English example sentence. Do not include explanations, translations, labels, markdown, or thinking.',
-        ),
-        AiProxyMessage(role: AiProxyRole.user, content: prompt),
-      ],
-      temperature: 0.45,
-      maxTokens: 90,
-    );
+    final response = await ref
+        .read(aiProxyClientProvider)
+        .complete(
+          taskType: task,
+          messages: [
+            const AiProxyMessage(
+              role: AiProxyRole.system,
+              content: 'Return one short English sentence only. No Chinese.',
+            ),
+            AiProxyMessage(role: AiProxyRole.user, content: prompt),
+          ],
+          temperature: 0.45,
+          maxTokens: 90,
+        );
     final sentence = LocalAiService.cleanSingleSentence(response.text);
-    return sentence.toLowerCase().contains(term.toLowerCase())
-        ? sentence
-        : null;
+    return _usableSentence(sentence, term: term, source: 'appRemote');
   }
 
   Future<String?> _generateWithUserGeminiKey({
@@ -181,12 +193,57 @@ class _AiExampleButtonState extends ConsumerState<AiExampleButton> {
         {'term': term, 'definition': definition},
       ],
     );
-    final raw = results[term] ??
-        (results.isNotEmpty ? results.values.first : '');
+    final raw =
+        results[term] ?? (results.isNotEmpty ? results.values.first : '');
     final sentence = LocalAiService.cleanSingleSentence(raw);
-    return sentence.toLowerCase().contains(term.toLowerCase())
-        ? sentence
-        : null;
+    return _usableSentence(sentence, term: term, source: 'gemini');
+  }
+
+  Future<String?> _generateWithUserGroqKey({
+    required String term,
+    required String definition,
+  }) async {
+    final key = ref.read(groqKeyProvider).trim();
+    if (key.isEmpty) return null;
+    final groq = GroqCompletionService(apiKey: key);
+    try {
+      return await groq.generateExampleSentence(
+        term: term,
+        definition: definition,
+      );
+    } finally {
+      groq.close();
+    }
+  }
+
+  String? _usableSentence(
+    String sentence, {
+    required String term,
+    required String source,
+  }) {
+    final cleaned = sentence.trim();
+    if (cleaned.isEmpty) {
+      if (kDebugMode) {
+        debugPrint('AiExampleButton $source returned empty example sentence.');
+      }
+      return null;
+    }
+    if (!LocalAiService.isLikelyEnglishSentence(cleaned)) {
+      if (kDebugMode) {
+        debugPrint(
+          'AiExampleButton $source returned non-English example: $cleaned',
+        );
+      }
+      return null;
+    }
+    if (!cleaned.toLowerCase().contains(term.toLowerCase())) {
+      if (kDebugMode) {
+        debugPrint(
+          'AiExampleButton $source example did not contain "$term": $cleaned',
+        );
+      }
+    }
+    return cleaned;
   }
 
   void _toast(String message) {
@@ -201,10 +258,10 @@ class _AiExampleButtonState extends ConsumerState<AiExampleButton> {
     final route = ref
         .watch(aiRouteProvider(AiTaskType.exampleSentence))
         .valueOrNull;
-    final hasCloudCredential = ref.watch(currentUserProvider) != null ||
-        ref.watch(geminiKeyProvider).trim().isNotEmpty;
-    final available = route != null &&
-        (route.isLocal || (route.isCloud && hasCloudCredential));
+    final selectedProvider = ref.watch(aiProviderProvider);
+    final available =
+        selectedProvider == AiProvider.appRemote ||
+        (route != null && route.target != AiRouteTarget.unavailable);
     if (!available) return const SizedBox.shrink();
 
     return TextButton.icon(

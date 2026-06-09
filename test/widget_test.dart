@@ -351,8 +351,8 @@ void main() {
         definition: '有韌性的',
       );
       expect(prompt, contains('resilient'));
-      expect(prompt, contains('例句'));
-      expect(prompt, contains('不要附中文翻譯'));
+      expect(prompt, contains('Write one short natural English sentence'));
+      expect(prompt, contains('No Chinese'));
     });
   });
 
@@ -417,6 +417,17 @@ void main() {
         expect(LocalAiService.cleanSingleSentence(''), '');
       },
     );
+
+    test('isLikelyEnglishSentence rejects Chinese example output', () {
+      expect(
+        LocalAiService.isLikelyEnglishSentence('我今天很忙。'),
+        isFalse,
+      );
+      expect(
+        LocalAiService.isLikelyEnglishSentence('I am busy after school.'),
+        isTrue,
+      );
+    });
 
     test('cleanShortParagraph keeps up to two non-empty lines', () {
       expect(

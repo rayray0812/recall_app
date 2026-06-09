@@ -27,8 +27,8 @@ class GroqCompletionService {
     required this.apiKey,
     this.model = defaultModel,
     http.Client? client,
-  })  : _client = client ?? http.Client(),
-        _ownsClient = client == null;
+  }) : _client = client ?? http.Client(),
+       _ownsClient = client == null;
 
   /// Llama 3.3 70B — strong, free on Groq, good for short structured output.
   static const String defaultModel = 'llama-3.3-70b-versatile';
@@ -76,9 +76,25 @@ class GroqCompletionService {
         reversed: reversed,
         count: count,
       );
-      final raw = await _complete(prompt: prompt, temperature: 0.8, maxTokens: 160);
+      final raw = await _complete(
+        prompt: prompt,
+        temperature: 0.8,
+        maxTokens: 160,
+      );
       final list =
-          LocalAiService.parseDistractorLines(raw, exclude: correctOption, max: count);
+          LocalAiService.parseDistractorLines(
+                raw,
+                exclude: correctOption,
+                max: count * 3,
+              )
+              .where(
+                (d) => LocalAiService.isDistractorShapeValid(
+                  d,
+                  reversed: reversed,
+                ),
+              )
+              .take(count)
+              .toList();
       analytics.logEvent(
         taskType: task.type,
         provider: task.provider,
@@ -99,7 +115,49 @@ class GroqCompletionService {
         elapsed: task.elapsed,
         failureReason: reason,
       );
-      debugPrint('GroqCompletionService.generateDistractors failed: $e');
+      if (kDebugMode) {
+        debugPrint('GroqCompletionService.generateDistractors failed: $e');
+      }
+      return null;
+    }
+  }
+
+  Future<String?> generateExampleSentence({
+    required String term,
+    required String definition,
+  }) async {
+    try {
+      final prompt = LocalAiService.buildExampleSentencePrompt(
+        term: term,
+        definition: definition,
+      );
+      final raw = await _complete(
+        prompt: prompt,
+        temperature: 0.45,
+        maxTokens: 90,
+      );
+      final sentence = LocalAiService.cleanSingleSentence(raw);
+      if (sentence.isEmpty) return null;
+      if (!LocalAiService.isLikelyEnglishSentence(sentence)) {
+        if (kDebugMode) {
+          debugPrint(
+            'GroqCompletionService returned non-English example: $sentence',
+          );
+        }
+        return null;
+      }
+      if (!sentence.toLowerCase().contains(term.toLowerCase())) {
+        if (kDebugMode) {
+          debugPrint(
+            'GroqCompletionService example did not contain "$term": $sentence',
+          );
+        }
+      }
+      return sentence;
+    } catch (e) {
+      if (kDebugMode) {
+        debugPrint('GroqCompletionService.generateExampleSentence failed: $e');
+      }
       return null;
     }
   }

@@ -15,7 +15,9 @@ import 'package:recall_app/models/flashcard.dart';
 import 'package:recall_app/models/study_set.dart';
 import 'package:recall_app/providers/ai_provider_provider.dart';
 import 'package:recall_app/providers/ai_runtime_provider.dart';
+import 'package:recall_app/providers/auth_provider.dart';
 import 'package:recall_app/providers/gemini_key_provider.dart';
+import 'package:recall_app/services/ai/ai_proxy_client.dart';
 import 'package:recall_app/services/ai/ai_quota_messages.dart';
 import 'package:recall_app/services/ai/ai_token_estimator.dart';
 import 'package:recall_app/services/ai_analytics_service.dart';
@@ -28,6 +30,7 @@ import 'package:recall_app/services/ocr_service.dart';
 
 String activeAiProviderLabel(AiProvider provider) {
   return switch (provider) {
+    AiProvider.appRemote => 'Grasp AI',
     AiProvider.groq => 'Groq',
     AiProvider.gemma => 'Gemma',
     AiProvider.gemini => 'Gemini',
@@ -39,6 +42,7 @@ String missingApiKeyMessageForProvider(
   AppLocalizations l10n,
 ) {
   return switch (provider) {
+    AiProvider.appRemote => '請先登入，才能使用 Grasp 遠端 AI。',
     AiProvider.groq => 'Groq API Key is not set.',
     AiProvider.gemma =>
       'Gemma endpoint or on-device model is not ready for this mode.',
@@ -48,6 +52,7 @@ String missingApiKeyMessageForProvider(
 
 String authErrorMessageForProvider(AiProvider provider) {
   return switch (provider) {
+    AiProvider.appRemote => 'Grasp 遠端 AI 驗證失敗，請重新登入。',
     AiProvider.groq =>
       'API authentication failed. Please check your Groq API Key.',
     AiProvider.gemma =>
@@ -246,11 +251,12 @@ class _PhotoImportScreenState extends ConsumerState<PhotoImportScreen>
       startedAt: DateTime.now().toUtc(),
     );
     final analytics = AiAnalyticsService();
-    // Gemma runs on-device (free); Groq/Gemini are cloud calls, so they are
-    // metered against the daily quota for the user's entitlement (§2.6). Use the
-    // atomic check-and-consume so two imports can't both pass the last slot.
-    final isCloud = provider != AiProvider.gemma;
-    if (isCloud) {
+    // Gemma runs on-device (free). BYO Groq/Gemini cloud calls are metered
+    // locally against the daily quota. App remote is metered server-side by the
+    // proxy, so do not consume the local quota here or it double-counts.
+    final isByoCloud =
+        provider == AiProvider.gemini || provider == AiProvider.groq;
+    if (isByoCloud) {
       final quota = ref.read(aiQuotaServiceProvider);
       final entitlement = ref.read(effectiveAiEntitlementProvider);
       if (!await quota.tryConsume(entitlement, AiTaskType.photoImport)) {
@@ -269,7 +275,9 @@ class _PhotoImportScreenState extends ConsumerState<PhotoImportScreen>
     }
     try {
       final List<Map<String, String>> result;
-      if (provider == AiProvider.gemma) {
+      if (provider == AiProvider.appRemote) {
+        result = await _callAppRemoteExtract(mode);
+      } else if (provider == AiProvider.gemma) {
         result = await _callGemmaExtract(mode);
       } else if (provider == AiProvider.groq) {
         // Prefer text-only mode: OCR reads, AI formats.
@@ -341,6 +349,69 @@ class _PhotoImportScreenState extends ConsumerState<PhotoImportScreen>
       );
       rethrow;
     }
+  }
+
+  Future<List<Map<String, String>>> _callAppRemoteExtract(
+    PhotoScanMode mode,
+  ) async {
+    final ocrText = _ocrResult?.fullText.trim() ?? '';
+    if (ocrText.length < 30) {
+      throw ScanException(
+        ScanFailureReason.invalidRequest,
+        'OCR text is too short for Grasp remote AI.',
+      );
+    }
+
+    final response = await ref.read(aiProxyClientProvider).complete(
+      taskType: AiTaskType.photoImport,
+      messages: [
+        const AiProxyMessage(
+          role: AiProxyRole.system,
+          content:
+              'You clean OCR text into flashcards. Return only JSON, no markdown.',
+        ),
+        AiProxyMessage(
+          role: AiProxyRole.user,
+          content: _buildRemotePhotoImportPrompt(mode: mode, ocrText: ocrText),
+        ),
+      ],
+      temperature: 0,
+      maxTokens: 1600,
+    );
+    final results = GeminiService.parseResponse(response.text);
+    if (results.length > GeminiService.maxCards) {
+      return results.sublist(0, GeminiService.maxCards);
+    }
+    return results;
+  }
+
+  String _buildRemotePhotoImportPrompt({
+    required PhotoScanMode mode,
+    required String ocrText,
+  }) {
+    final task = switch (mode) {
+      PhotoScanMode.vocabularyList =>
+        'Structure this OCR text from a vocabulary list into term-definition flashcards. Preserve bilingual pairings. Skip headers, page numbers, numbering-only rows, duplicates, and uncertain fragments.',
+      PhotoScanMode.textbookPage =>
+        'Extract 5-15 testable key concepts from this OCR text from a textbook/study page. Use concise terms/questions and definitions/answers. Skip headers, page numbers, labels, and uncertain fragments.',
+    };
+    final clipped = ocrText.length > 3200 ? ocrText.substring(0, 3200) : ocrText;
+    return '''
+$task
+
+Rules:
+- Keep original language.
+- Do not invent missing content.
+- Do not output items where term and definition are the same text.
+- exampleSentence is optional. Only include it if a matching sentence is explicitly present; otherwise use "".
+- Return ONLY a valid JSON array.
+- Each item must be: {"term":"...","definition":"...","exampleSentence":"..."}
+
+OCR text:
+---
+$clipped
+---
+''';
   }
 
   /// Gemma-specific extraction with hybrid OCR parser + local model strategy.
@@ -431,13 +502,18 @@ class _PhotoImportScreenState extends ConsumerState<PhotoImportScreen>
     if (provider == AiProvider.groq) {
       return ref.read(groqKeyProvider);
     }
-    // Gemma uses local model, no API key needed.
-    if (provider == AiProvider.gemma) return '';
+    // App remote uses Supabase auth, Gemma uses local model.
+    if (provider == AiProvider.appRemote || provider == AiProvider.gemma) {
+      return '';
+    }
     return ref.read(geminiKeyProvider);
   }
 
   bool _canUseAiForMode(PhotoScanMode mode) {
     final provider = ref.read(aiProviderProvider);
+    if (provider == AiProvider.appRemote) {
+      return ref.read(currentUserProvider) != null;
+    }
     if (provider == AiProvider.gemma) {
       return ref.read(gemmaLocalModelPathProvider).trim().isNotEmpty;
     }
@@ -1083,7 +1159,5 @@ class _ModeCard extends StatelessWidget {
     );
   }
 }
-
-
 
 

@@ -16,7 +16,6 @@ import 'package:recall_app/features/study/widgets/combo_indicator.dart';
 import 'package:recall_app/features/study/widgets/completion_celebrate_overlay.dart';
 import 'package:recall_app/features/study/widgets/mnemonic_button.dart';
 import 'package:recall_app/features/study/widgets/rating_buttons.dart';
-import 'package:recall_app/features/study/widgets/review_hint_button.dart';
 import 'package:recall_app/features/study/widgets/xp_toast.dart';
 import 'package:recall_app/providers/session_xp_provider.dart';
 import 'package:recall_app/features/study/widgets/rounded_progress_bar.dart';
@@ -652,11 +651,6 @@ class _SrsReviewScreenState extends ConsumerState<SrsReviewScreen>
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    ReviewHintButton(
-                      cardId: item.card.id,
-                      term: item.card.term,
-                      definition: item.card.definition,
-                    ),
                     Text(
                       l10n.tapToFlip,
                       style: Theme.of(context).textTheme.bodySmall?.copyWith(

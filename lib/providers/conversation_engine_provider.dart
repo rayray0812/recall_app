@@ -7,10 +7,11 @@ import 'package:recall_app/providers/gemini_key_provider.dart';
 import 'package:recall_app/services/ai_analytics_service.dart';
 import 'package:recall_app/services/ai_task.dart';
 
-/// Builds the conversation engine from the user's provider choice + configured
-/// keys, with the *other* cloud provider as automatic fallback when its key is
-/// present (so a rate-limited primary hands off instead of dropping to canned
-/// replies). Returns null when no cloud key is configured at all.
+/// Builds the conversation engine from the user's single AI mode.
+///
+/// App remote conversation is not proxied yet, and local Gemma has no chat
+/// engine here, so both return null instead of silently falling back to BYO
+/// keys. That keeps Settings honest: the selected mode is the mode that runs.
 final conversationEngineProvider = Provider<ConversationEngine?>((ref) {
   final provider = ref.watch(aiProviderProvider);
   final geminiKey = ref.watch(geminiKeyProvider).trim();
@@ -23,16 +24,11 @@ final conversationEngineProvider = Provider<ConversationEngine?>((ref) {
       ? GroqConversationEngine(apiKey: groqKey)
       : null;
 
-  // Order by user preference; on-device ('gemma') has no cloud chat, so it just
-  // uses whatever cloud keys exist (Gemini first by default).
-  final ordered = <ConversationEngine>[];
-  if (provider == AiProvider.groq) {
-    if (groq != null) ordered.add(groq);
-    if (gemini != null) ordered.add(gemini);
-  } else {
-    if (gemini != null) ordered.add(gemini);
-    if (groq != null) ordered.add(groq);
-  }
+  final ordered = switch (provider) {
+    AiProvider.gemini => [if (gemini != null) gemini],
+    AiProvider.groq => [if (groq != null) groq],
+    AiProvider.appRemote || AiProvider.gemma => <ConversationEngine>[],
+  };
 
   if (ordered.isEmpty) return null;
   // Always wrap (even a single engine) so every provider dispatch is logged as

@@ -1,5 +1,7 @@
+import 'package:recall_app/services/ai/ai_quota_service.dart';
 import 'package:recall_app/services/ai_error.dart';
 import 'package:recall_app/services/ai_task.dart';
+import 'package:recall_app/services/ai_analytics_service.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 /// Tasks the Flutter client currently dispatches through the server proxy.
@@ -10,6 +12,8 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 const Set<AiTaskType> proxyBackedTasks = {
   AiTaskType.smartDistractors,
   AiTaskType.exampleSentence,
+  AiTaskType.photoImport,
+  AiTaskType.cardLookup,
 };
 
 /// Client for Grasp's server-side AI proxy.
@@ -42,6 +46,7 @@ class AiProxyClient {
     double temperature = 0.3,
     int? maxTokens,
   }) async {
+    final startedAt = DateTime.now();
     if (messages.isEmpty) {
       throw ScanException(
         ScanFailureReason.invalidRequest,
@@ -50,6 +55,7 @@ class AiProxyClient {
     }
 
     try {
+      await _ensureValidSession();
       final response = await _supabase.functions.invoke(
         'ai-proxy',
         body: {
@@ -68,7 +74,9 @@ class AiProxyClient {
           'Invalid AI proxy response.',
         );
       }
-      return AiProxyResponse.fromJson(Map<String, dynamic>.from(data));
+      final parsed = AiProxyResponse.fromJson(Map<String, dynamic>.from(data));
+      await _recordUsage(taskType, parsed, DateTime.now().difference(startedAt));
+      return parsed;
     } on FunctionException catch (e) {
       throw ScanException(_reasonForStatus(e.status), _messageForFunction(e));
     } on ScanException {
@@ -76,6 +84,50 @@ class AiProxyClient {
     } catch (e) {
       final reason = AiErrorClassifier.classifySdkError(e.toString());
       throw ScanException(reason, 'AI proxy request failed.');
+    }
+  }
+
+  Future<void> _recordUsage(
+    AiTaskType taskType,
+    AiProxyResponse response,
+    Duration elapsed,
+  ) async {
+    await AiAnalyticsService().logEvent(
+      taskType: taskType,
+      provider: response.provider,
+      success: true,
+      elapsed: elapsed,
+      inputTokens: response.inputTokens,
+      outputTokens: response.outputTokens,
+    );
+    await AiQuotaService().recordServerUsage(taskType);
+  }
+
+  Future<void> _ensureValidSession() async {
+    final session = _supabase.auth.currentSession;
+    if (session == null) {
+      throw ScanException(
+        ScanFailureReason.authError,
+        'Sign in required.',
+      );
+    }
+    if (!session.isExpired) return;
+
+    try {
+      final refreshed = await _supabase.auth.refreshSession();
+      if (refreshed.session == null) {
+        throw ScanException(
+          ScanFailureReason.authError,
+          'Invalid session.',
+        );
+      }
+    } on ScanException {
+      rethrow;
+    } catch (_) {
+      throw ScanException(
+        ScanFailureReason.authError,
+        'Invalid session.',
+      );
     }
   }
 

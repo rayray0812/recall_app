@@ -51,7 +51,11 @@ class AiRouter {
       // Medium tasks: prefer local, cloud as fallback.
       AiTaskType.exampleSentence ||
       AiTaskType.photoImport ||
-      AiTaskType.speakingScore => AiTaskTier.localPreferred,
+      AiTaskType.speakingScore ||
+      // Card auto-fill: try the on-device model first (free/private); escalate
+      // to the cloud proxy only when the local model is missing or its output
+      // is too low-quality to use (see CardLookupService quality gate).
+      AiTaskType.cardLookup => AiTaskTier.localPreferred,
       // High-frequency / heavy tasks: prefer cloud (free Groq) to spare the
       // battery, fall back to the local engine when offline. smartDistractors
       // fires on every multiple-choice question — the biggest on-device

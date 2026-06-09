@@ -831,8 +831,13 @@ class ConversationSessionNotifier
     String userResponse,
   ) async {
     final current = state.valueOrNull;
-    final geminiKey = ref.read(geminiKeyProvider).trim();
-    final groqKey = ref.read(groqKeyProvider).trim();
+    final provider = ref.read(aiProviderProvider);
+    final geminiKey = provider == AiProvider.gemini
+        ? ref.read(geminiKeyProvider).trim()
+        : '';
+    final groqKey = provider == AiProvider.groq
+        ? ref.read(groqKeyProvider).trim()
+        : '';
     if (current == null || (geminiKey.isEmpty && groqKey.isEmpty)) {
       _evaluateTurnOffline(turnIndex, userResponse);
       return;
@@ -868,8 +873,8 @@ class ConversationSessionNotifier
     });
   }
 
-  /// Score a turn trying the user's preferred cloud provider first, then the
-  /// other as fallback. Returns null if neither produced usable feedback.
+  /// Score a turn with the selected BYO provider. Returns null if that provider
+  /// is unavailable or did not produce usable feedback.
   Future<TurnFeedback?> _scoreWithFallback({
     required String aiQuestion,
     required String userResponse,
@@ -898,8 +903,9 @@ class ConversationSessionNotifier
             targetTerms: _vocab.targetTerms,
           );
 
-    final preferGroq = ref.read(aiProviderProvider) == AiProvider.groq;
-    final order = preferGroq ? [groq, gemini] : [gemini, groq];
+    final order = ref.read(aiProviderProvider) == AiProvider.groq
+        ? [groq]
+        : [gemini];
     for (final attempt in order) {
       final result = await attempt();
       if (result != null) return result;
@@ -1300,4 +1306,3 @@ class _ScenarioProfile {
     required this.userRoleZh,
   });
 }
-

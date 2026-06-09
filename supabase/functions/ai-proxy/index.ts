@@ -17,10 +17,11 @@ const supportedTasks = new Set([
   'smartDistractors',
   'photoImport',
   'speakingScore',
+  'cardLookup',
 ]);
 
 const defaultGroqModel = 'llama-3.1-8b-instant';
-const defaultGeminiModel = 'gemini-2.0-flash';
+const defaultGeminiModel = 'gemini-2.5-flash-lite';
 const allowedGroqModels = new Set([
   defaultGroqModel,
   'llama-3.3-70b-versatile',
@@ -28,8 +29,7 @@ const allowedGroqModels = new Set([
 ]);
 const allowedGeminiModels = new Set([
   defaultGeminiModel,
-  'gemini-2.0-flash-lite',
-  'gemini-1.5-flash',
+  'gemini-2.5-flash',
 ]);
 
 type AiEntitlement = 'free' | 'plus' | 'pro_ai' | 'classroom';
@@ -58,12 +58,11 @@ Deno.serve(async (req: Request) => {
   }
 
   const supabaseUrl = Deno.env.get('SUPABASE_URL');
-  const anonKey = Deno.env.get('SUPABASE_ANON_KEY');
   const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
   const groqKey = Deno.env.get('GRASP_GROQ_API_KEY');
   const geminiKey = Deno.env.get('GRASP_GEMINI_API_KEY');
 
-  if (!supabaseUrl || !anonKey || !serviceRoleKey) {
+  if (!supabaseUrl || !serviceRoleKey) {
     return json({ error: 'missing_env', message: 'Server is not configured.' }, 500);
   }
 
@@ -83,20 +82,15 @@ Deno.serve(async (req: Request) => {
     return json({ error: 'unauthorized', message: 'Sign in required.' }, 401);
   }
 
-  const userClient = createClient(supabaseUrl, anonKey, {
-    global: { headers: { authorization: authHeader } },
+  const admin = createClient(supabaseUrl, serviceRoleKey, {
     auth: { autoRefreshToken: false, persistSession: false },
   });
 
-  const userResult = await userClient.auth.getUser(token);
+  const userResult = await admin.auth.getUser(token);
   const user = userResult.data.user;
   if (userResult.error || !user) {
     return json({ error: 'unauthorized', message: 'Invalid session.' }, 401);
   }
-
-  const admin = createClient(supabaseUrl, serviceRoleKey, {
-    auth: { autoRefreshToken: false, persistSession: false },
-  });
 
   const body = await parseJson(req);
   const validation = validateRequest(body, provider);
@@ -413,12 +407,14 @@ function dailyLimit(tier: AiEntitlement, taskType: string): number {
     if (taskType === 'smartDistractors') return 500;
     if (taskType === 'photoImport') return 100;
     if (taskType === 'speakingScore') return 200;
+    if (taskType === 'cardLookup') return 300;
   }
   if (taskType === 'exampleSentence') return 30;
   if (taskType === 'conversationTurn') return 30;
   if (taskType === 'smartDistractors') return 60;
   if (taskType === 'photoImport') return 10;
   if (taskType === 'speakingScore') return 20;
+  if (taskType === 'cardLookup') return 20;
   return 0;
 }
 
@@ -464,7 +460,8 @@ function maxTokensFor(taskType: string): number {
   if (taskType === 'exampleSentence') return 120;
   if (taskType === 'smartDistractors') return 180;
   if (taskType === 'speakingScore') return 320;
-  if (taskType === 'photoImport') return 600;
+  if (taskType === 'photoImport') return 1800;
+  if (taskType === 'cardLookup') return 220;
   return 420;
 }
 

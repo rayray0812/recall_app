@@ -11,6 +11,7 @@ enum AiTaskType {
   confusionDiagnosis, // L3
   exampleSentence, // example-sentence generation for a vocab card
   smartDistractors, // plausible wrong options for multiple-choice quiz
+  cardLookup, // auto-fill a card (definition + part of speech + example) from a term
 }
 
 /// Lifecycle state of an AI operation.

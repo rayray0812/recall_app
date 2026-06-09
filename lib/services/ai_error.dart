@@ -45,6 +45,7 @@ abstract final class AiErrorClassifier {
     }
     if (msg.contains('api key not valid') ||
         msg.contains('unauthenticated') ||
+        msg.contains('invalid session') ||
         msg.contains('permission denied') ||
         msg.contains('401') ||
         msg.contains('403')) {
@@ -82,7 +83,9 @@ abstract final class AiErrorClassifier {
     if (msg.contains('rate limit') || msg.contains('rate_limit')) {
       return ScanFailureReason.quotaExceeded;
     }
-    if (msg.contains('api key') || msg.contains('unauthenticated')) {
+    if (msg.contains('api key') ||
+        msg.contains('unauthenticated') ||
+        msg.contains('invalid session')) {
       return ScanFailureReason.authError;
     }
     return ScanFailureReason.unknown;

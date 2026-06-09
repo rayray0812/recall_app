@@ -29,7 +29,7 @@ class TurnFeedback {
 
 /// Evaluates student responses in conversation practice.
 class ConversationScorer {
-  static const _models = ['gemini-2.0-flash'];
+  static const _models = ['gemini-2.5-flash-lite', 'gemini-2.5-flash'];
   static const _timeout = Duration(seconds: 15);
   static const _groqEndpoint =
       'https://api.groq.com/openai/v1/chat/completions';

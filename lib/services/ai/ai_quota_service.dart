@@ -43,7 +43,16 @@ class AiQuotaService {
   /// Ensure [_counts] holds today's counts, reloading from Hive on a day change.
   Map<String, int> _ensureToday() {
     final today = dayKey();
-    if (_loadedDay == today) return _counts;
+    if (_loadedDay == today) {
+      final persisted = _readPersisted(today);
+      for (final entry in persisted.entries) {
+        final current = _counts[entry.key] ?? 0;
+        if (entry.value > current) {
+          _counts[entry.key] = entry.value;
+        }
+      }
+      return _counts;
+    }
     _loadedDay = today;
     _counts = _readPersisted(today);
     return _counts;
@@ -108,6 +117,18 @@ class AiQuotaService {
     // the user's favour, which is acceptable.
     await _persist();
     return true;
+  }
+
+  /// Record a successful server-metered proxy call for local usage display.
+  ///
+  /// Server-side quota enforcement remains the source of truth; this method is
+  /// only a best-effort mirror so the settings UI reflects owner-funded
+  /// app-remote calls made through Supabase Edge Functions.
+  Future<void> recordServerUsage(AiTaskType type) async {
+    if (!AiQuotaPolicy.isMetered(type)) return;
+    final counts = _ensureToday();
+    counts[type.name] = (counts[type.name] ?? 0) + 1;
+    await _persist();
   }
 
   Future<void> _persist() async {

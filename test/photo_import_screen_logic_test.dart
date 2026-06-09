@@ -8,6 +8,7 @@ void main() {
   final zhL10n = AppLocalizationsZh(const Locale('zh', 'TW'));
 
   test('activeAiProviderLabel returns correct provider name', () {
+    expect(activeAiProviderLabel(AiProvider.appRemote), 'Grasp AI');
     expect(activeAiProviderLabel(AiProvider.gemini), 'Gemini');
     expect(activeAiProviderLabel(AiProvider.groq), 'Groq');
   });
@@ -23,6 +24,10 @@ void main() {
     expect(
       missingApiKeyMessageForProvider(AiProvider.gemini, zhL10n),
       zhL10n.geminiApiKeyNotSet,
+    );
+    expect(
+      missingApiKeyMessageForProvider(AiProvider.appRemote, zhL10n),
+      contains('請先登入'),
     );
   });
 

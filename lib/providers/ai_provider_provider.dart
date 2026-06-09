@@ -3,8 +3,13 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 
-/// Supported AI providers for photo scanning.
-enum AiProvider { gemini, groq, gemma }
+/// Selected AI execution mode.
+///
+/// This is intentionally a single choice in settings:
+/// - [appRemote]: Grasp-managed Supabase Edge Function, owner token protected.
+/// - [gemma]: on-device local model only.
+/// - [gemini]/[groq]: user's own API key only.
+enum AiProvider { appRemote, gemma, gemini, groq }
 
 const _boxName = 'settings';
 const _providerKey = 'ai_provider';
@@ -13,22 +18,24 @@ const _gemmaLocalModelPathKey = 'gemma_local_model_path';
 
 /// Notifier that persists the selected AI provider in Hive settings box.
 class AiProviderNotifier extends StateNotifier<AiProvider> {
-  AiProviderNotifier() : super(AiProvider.gemini) {
+  AiProviderNotifier() : super(AiProvider.appRemote) {
     _load();
   }
 
   void _load() {
     try {
       final box = Hive.box(_boxName);
-      final raw = box.get(_providerKey, defaultValue: 'gemini') as String;
+      final raw = box.get(_providerKey, defaultValue: 'appRemote') as String;
       state = switch (raw) {
+        'appRemote' => AiProvider.appRemote,
         'groq' => AiProvider.groq,
         'gemma' => AiProvider.gemma,
-        _ => AiProvider.gemini,
+        'gemini' => AiProvider.gemini,
+        _ => AiProvider.appRemote,
       };
     } catch (e) {
       debugPrint('AI provider load failed: $e');
-      state = AiProvider.gemini;
+      state = AiProvider.appRemote;
     }
   }
 

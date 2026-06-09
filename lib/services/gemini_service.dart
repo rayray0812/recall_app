@@ -51,10 +51,10 @@ class ConversationReplySuggestion {
 }
 
 class GeminiService {
-  static const _models = ['gemini-2.0-flash-lite', 'gemini-2.0-flash'];
+  static const _models = ['gemini-2.5-flash-lite', 'gemini-2.5-flash'];
   static const _timeout = Duration(seconds: 30);
   static const maxCards = 300;
-  static const _lightweightModels = ['gemini-2.0-flash-lite'];
+  static const _lightweightModels = ['gemini-2.5-flash-lite'];
 
   static const _vocabularyPrompt =
       'Extract all term-definition pairs from this vocabulary list/word table image. '
