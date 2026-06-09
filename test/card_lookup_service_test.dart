@@ -46,6 +46,24 @@ void main() {
       expect(r.pos, 'adj.');
     });
 
+    test('strips a Qwen3 <think> block before the JSON', () {
+      final r = CardLookupService.parse(
+        '<think>The user wants the meaning of "abandon". Let me think...</think>\n'
+        '{"definition":"放棄；遺棄","pos":"v.","example":"Never abandon a friend."}',
+      );
+      expect(r, isNotNull);
+      expect(r!.definition, '放棄；遺棄');
+      expect(r.pos, 'v.');
+    });
+
+    test('returns null when only an unfinished <think> block was produced', () {
+      // Reasoning ate the whole token budget → no usable answer.
+      final r = CardLookupService.parse(
+        '<think>Hmm, "abandon" means to give up something, let me consider',
+      );
+      expect(r, isNull);
+    });
+
     test('returns null on empty or contentless output', () {
       expect(CardLookupService.parse(''), isNull);
       expect(CardLookupService.parse('   '), isNull);

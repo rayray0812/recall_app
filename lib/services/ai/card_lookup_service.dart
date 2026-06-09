@@ -62,19 +62,36 @@ class CardLookupService {
   /// regex when the JSON itself is malformed. Returns null when nothing usable
   /// can be extracted.
   static CardLookupResult? parse(String raw, {String? term}) {
-    if (raw.trim().isEmpty) return null;
+    final text = _stripReasoning(raw);
+    if (text.isEmpty) return null;
 
-    final jsonResult = _tryJson(raw);
+    final jsonResult = _tryJson(text);
     if (jsonResult != null) return jsonResult;
 
     // Fallback: pull individual fields out of loosely-formatted text.
-    final definition = _field(raw, 'definition');
+    final definition = _field(text, 'definition');
     if (definition == null || definition.isEmpty) return null;
     return CardLookupResult(
       definition: definition,
-      pos: _normalizePos(_field(raw, 'pos') ?? ''),
-      example: _field(raw, 'example') ?? '',
+      pos: _normalizePos(_field(text, 'pos') ?? ''),
+      example: _field(text, 'example') ?? '',
     );
+  }
+
+  /// Qwen3-style reasoning models emit `<think>…</think>` before the answer.
+  /// Strip complete blocks; bail on an unfinished one (the token budget was
+  /// spent reasoning, so there is no usable JSON to salvage).
+  static String _stripReasoning(String raw) {
+    var text = raw.trim();
+    if (text.isEmpty) return '';
+    text = text
+        .replaceAll(
+          RegExp(r'<think>[\s\S]*?</think>', caseSensitive: false),
+          '',
+        )
+        .trim();
+    if (text.toLowerCase().contains('<think>')) return '';
+    return text;
   }
 
   static CardLookupResult? _tryJson(String raw) {
@@ -137,7 +154,10 @@ class CardLookupService {
   }) async {
     try {
       final raw = await engine.generate(
-        prompt: '$systemPrompt\n\n${buildPrompt(term)}',
+        // `/no_think` disables Qwen3's reasoning mode so the small on-device
+        // model spends its token budget on the JSON answer, not on a long
+        // <think> block (which otherwise leaves the output empty/truncated).
+        prompt: '/no_think\n$systemPrompt\n\n${buildPrompt(term)}',
         maxTokens: maxTokens,
         temperature: 0.3,
         topK: 40,
